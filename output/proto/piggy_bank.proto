@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/timestamp.proto";
+import "resource.proto";
+import "reward.proto";
+
+message PiggyBankDefinitionDTO {
+  string id = 1;
+  bool tasks = 3;
+  bool boxes = 4;
+  bool reset = 5;
+  int32 buy_limit = 6;
+}
+
+message PiggyBankBoxComponentDTO {
+  string id = 1;
+  string shop_offer_id = 2;
+  ResourceDTO thresholds = 3;
+  ResourceDTO deposit_resource = 4;
+}
+
+message PiggyBankEventDTO {
+  PiggyBankDefinitionDTO definition = 1;
+  google.protobuf.Timestamp start_at = 2;
+  google.protobuf.Timestamp end_at = 3;
+  PiggyBankStateDataDTO state = 4;
+}
+
+message PiggyBankStateDataDTO {
+  int32 bought_boxes = 1;
+  int64 deposit = 2;
+}
+
+message PiggyBankValidateBuyRequest {
+  string event_definition_id = 1;
+}
+
+message PiggyBankRewardDTO {
+  BaseRewardDTO base_data = 1;
+  string piggy_bank_definition_id = 2;
+  ResourceDTO reward_granted = 3;
+}

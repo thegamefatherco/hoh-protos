@@ -1,0 +1,309 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/timestamp.proto";
+import "hero_battle.proto";
+import "hero_shared.proto";
+import "init.proto";
+import "resource.proto";
+import "reward.proto";
+import "uuid.proto";
+
+message HeroDefinitionDTO {
+  string definition_id = 1;
+  string unit_definition_id = 2;
+  string components = 3;
+  string backdrop_asset_id = 4;
+}
+
+message HeroRewardDTO {
+  enum HeroRewardResultDTO {
+    UNDEFINED = 0;
+    HERO_UNLOCKED = 1;
+    HERO_ESSENCE_GRANTED = 2;
+    FALLBACK_ESSENCE_GRANTED = 3;
+    STAR_UP_GRANTED = 4;
+  }
+  string hero_definition_id = 1;
+  bool hidden = 2;
+  BaseRewardDTO base_data = 3;
+  string fallback_essence = 4;
+  int32 fallback_essence_amount = 5;
+  string star_up_definition_id = 6;
+  HeroRewardResultDTO granted_reward = 10;
+}
+
+message HeroPush {
+}
+
+message HeroUnlockedPush {
+  HeroDTO hero = 1;
+}
+
+message HeroUpdatedPush {
+  HeroDTO hero = 1;
+}
+
+message HeroDTO {
+  string hero_definition_id = 1;
+  int32 level = 2;
+  int32 ascension_level = 3;
+  int32 xp = 4;
+  int32 ability_level = 5;
+  int64 ability_mastery_points = 6;
+  int32 awakening_level = 7;
+  google.protobuf.Timestamp unlocked_at = 8;
+  bool is_new = 9;
+  string star_up_definition_id = 10;
+}
+
+message HeroDeckDTO {
+  string definition_id = 1;
+}
+
+message HeroDeckDefinitionDTO {
+  string definition_id = 1;
+  int32 size_override = 2;
+  bool deletable = 3;
+}
+
+message SaveHeroDeckRequestDTO {
+  string definition_id = 2;
+}
+
+message DeleteHeroDeckRequest {
+  string definition_id = 1;
+}
+
+message HaveHeroRequirementDTO {
+  HeroTaskFilterDTO filter = 2;
+}
+
+message HeroBattleAbilityLevelUpRequest {
+  string hero_definition_id = 2;
+}
+
+message HeroProgressionLevelUpRequest {
+  string hero_definition_id = 2;
+  PartialPaymentDTO inventory_item_definition_ids_and_amounts = 3;
+  PartialPaymentDTO invested_premium = 4;
+}
+
+message HeroProgressionAscendRequest {
+  string hero_definition_id = 2;
+}
+
+message HeroStarUpRequest {
+  string hero_definition_id = 1;
+  string star_up_definition_id = 2;
+  PartialPaymentDTO invest_resources = 3;
+  PartialPaymentDTO invested_premium = 4;
+}
+
+message HeroStarUpDefinitionDTO {
+  string definition_id = 1;
+  ActionComponentDTO action = 2;
+  string unit_definition_id = 3;
+  string backdrop_asset_id = 4;
+  string components = 5;
+  string origin_hero_definition_id = 6;
+}
+
+message HeroLevelUpXpTraitDTO {
+  int32 xp = 1;
+  string hero_class_filter = 2;
+}
+
+message HeroBattleAbilityComponentDTO {
+  string id = 1;
+  bool levels = 2;
+  bool repeat_last_ability = 3;
+}
+
+message HeroBattleAbilityLevelDTO {
+  ActionComponentDTO level_up_action = 2;
+  int32 hero_shards = 3;
+  int32 mastery_points = 4;
+  bool highlight_level = 5;
+}
+
+message HeroProgressionComponentDTO {
+  string hero_progression_definition_id = 1;
+  string hero_progression_cost_definition_id = 2;
+  string hero_progression_ascension_cost_definition_id = 3;
+}
+
+message HeroProgressionDefinitionDTO {
+  string definition_id = 1;
+  int32 max_level = 2;
+}
+
+message HeroProgressionRequirementsDTO {
+}
+
+message HeroProgressionCostDefinitionDTO {
+  string definition_id = 1;
+}
+
+message HeroProgressionAscensionCostDefinitionDTO {
+  string definition_id = 1;
+}
+
+message HeroProgressionLevelUpCostDTO {
+  int32 xp = 1;
+  string cost_resource_definition_id = 2;
+  float cost_per_xp = 3;
+}
+
+message HeroClassDefinitionDTO {
+  string definition_id = 1;
+}
+
+message HeroSupportUnitComponentDTO {
+  string unit_type_definition_id = 1;
+}
+
+message HeroPulledChatNotificationDataDTO {
+  int32 player_id = 1;
+  string hero_definition_id = 2;
+  string star_up_definition_id = 3;
+}
+
+message HeroStarredUpChatNotificationDataDTO {
+  int32 player_id = 1;
+  string star_up_definition_id = 2;
+}
+
+message HaveHeroDeckRequirementDTO {
+  string hero_deck_definition_id = 1;
+}
+
+message HeroAbilityLevelFormulaTermDTO {
+  double factor = 1;
+  double fallback = 2;
+}
+
+message HeroAwakeningRequest {
+  string hero_definition_id = 2;
+}
+
+message HeroAwakeningComponentDTO {
+  message LevelDTO {
+    ActionComponentDTO upgrade_action = 1;
+    int32 upgrade_hero_shards = 2;
+  }
+  string definition_id = 1;
+}
+
+message HeroBuildingBoostComponentDTO {
+  string definition_id = 1;
+  string unit_type_definition_id = 2;
+}
+
+message HeroAbilityTrainingComponentDTO {
+  string definition_id = 1;
+  string unit_type_definition_id = 2;
+  float amount_per_hour = 3;
+  int32 base_slots = 4;
+  int32 subscription_slots = 5;
+  string subscription_benefit = 6;
+}
+
+message HeroAbilityTrainingStartRequest {
+  UUID building_id = 2;
+  int32 slot = 3;
+  string hero_definition_id = 4;
+}
+
+message HeroAbilityTrainingStopRequest {
+  UUID building_id = 2;
+  int32 slot = 3;
+}
+
+message HeroAbilityTrainingDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  UUID building_id = 3;
+  int32 slot = 4;
+  string hero_definition_id = 5;
+  google.protobuf.Timestamp start_time = 6;
+}
+
+message HeroAbilityTrainingPush {
+}
+
+message HeroAbilityTrainingStoppedPush {
+  int64 id = 1;
+  UUID building_id = 2;
+  int32 slot = 3;
+  string hero_definition_id = 4;
+}
+
+message HeroAbilityTrainingUseItemRequest {
+  string hero_definition_id = 2;
+  string resource_definition_id = 3;
+  int64 resource_amount = 4;
+}
+
+message HeroAbilityMasteryPointsTraitDTO {
+  string unit_type_definition_id = 1;
+  int64 mastery_points = 2;
+}
+
+message HaveHeroTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+}
+
+message StartHeroTrainingTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+}
+
+message HeroIncreaseAbilityLevelTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+}
+
+message LevelUpHeroTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+}
+
+message AscendHeroTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+}
+
+message HeroMarkAsSeenRequest {
+}
+
+message HeroHiddenComponentDTO {
+}
+
+message HeroPassiveAbilityDisplayComponentDTO {
+}
+
+message GetHeroRewardTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  HeroTaskFilterDTO filter = 3;
+  bool valid_results = 4;
+  bool ignore_star_up = 5;
+}
+
+message PlayerHeroRequest {
+  int32 player_id = 1;
+  string hero_definition_id = 2;
+}
+
+message PlayerHeroResponse {
+  int32 player_id = 1;
+  HeroBattleHeroAndSupportUnitDTO hero = 2;
+}

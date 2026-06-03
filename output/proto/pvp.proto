@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "alliance.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "hero_battle_log.proto";
+import "init.proto";
+import "player.proto";
+import "resource.proto";
+import "uuid.proto";
+
+message PvpArenaModifierComponentDTO {
+  string id = 1;
+}
+
+message PvpEventComponentDTO {
+  string id = 1;
+  string battle_definition_id = 2;
+  int32 wins_to_qualify = 4;
+  ActionComponentDTO defensive_deck_definition_ids = 5;
+  ActionComponentDTO start_battle_cost = 6;
+  int32 stages_per_battle = 7;
+  int32 targets = 100;
+  google.protobuf.Duration free_target_reset = 101;
+  ActionComponentDTO paid_target_reset = 102;
+  string tiers = 200;
+  string pvp_tier_history_group = 201;
+  int32 ranking_top_players = 300;
+  int32 top_x_cutoff = 301;
+}
+
+message PvpEventTierDTO {
+  string definition_id = 1;
+  ActionComponentDTO battle_reward = 2;
+  ActionComponentDTO season_reward = 3;
+}
+
+message PvpEventStateDTO {
+  message ActiveMultiStageBattleDTO.Types.StageResultDTO {
+    int64 battle_id = 1;
+    bool won = 2;
+    UUID battle_frontend_id = 3;
+  }
+  message ActiveMultiStageBattleDTO {
+    int32 target_player_id = 1;
+    int32 current_stage_index = 2;
+    bool stages = 3;
+    bool revenge_battle = 5;
+    int64 original_battle_id = 6;
+  }
+  google.protobuf.Timestamp battle_locations = 1;
+  google.protobuf.Timestamp last_target_reset = 2;
+  bool players_won_against = 4;
+  bool tier_reward_collected = 5;
+  bool ranking_reward_collected = 6;
+  ActiveMultiStageBattleDTO active_multi_stage_battle = 7;
+}
+
+message PvpBattleLocationDataDTO {
+  message PvpStageDataDTO {
+    PvpBattlePointsDTO enemies = 1;
+    PvpBattlePointsDTO points_on_win = 2;
+    PvpBattlePointsDTO points_on_loss = 3;
+  }
+  int64 event_id = 1;
+  string pvp_event_component_id = 2;
+  int32 player_id = 3;
+  PlayerInfoDTO player = 4;
+  AllianceInfoDTO alliance = 5;
+  int32 points = 6;
+  int32 stage = 11;
+}
+
+message PvpBattlePointsDTO {
+  int32 points_for_player = 1;
+  int32 points_for_enemy = 2;
+}
+
+message PvpRevengeBattleLocationDataDTO {
+  message RevengeStagePointsDTO {
+    PvpBattlePointsDTO player_win = 1;
+    PvpBattlePointsDTO enemy_win = 2;
+  }
+  int64 event_id = 1;
+  string pvp_event_component_id = 2;
+  int32 stage = 6;
+}
+
+message PvpParticipationPush {
+  int64 event_id = 1;
+  string pvp_event_component_id = 2;
+  int32 points = 3;
+  int32 collectable_resources = 4;
+  int32 wins_as_attacker = 5;
+  int32 losses_as_attacker = 6;
+  int32 wins_as_defender = 7;
+  int32 losses_as_defender = 8;
+  bool rank_sent = 9;
+  int32 rank = 10;
+}
+
+message PvpBattleHistoryRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpBattleHistoryResponse {
+}
+
+message PvpBattleHistoryEntryDTO {
+  message StageResultDTO {
+    HeroBattleLogDTO battle_log = 1;
+    UUID enemy_units = 3;
+    UUID battle_id = 4;
+    bool won = 5;
+    int32 point_change = 6;
+  }
+  PlayerInfoDTO attacker = 1;
+  PlayerInfoDTO target = 2;
+  int32 points_before = 3;
+  int32 points_change = 4;
+  int32 enemy_points = 5;
+  google.protobuf.Timestamp battle_ended = 9;
+  PvpRevengeBattleLocationDataDTO revenge_location = 11;
+  bool revenge_used = 12;
+  bool revenge_battle = 13;
+}
+
+message PvpGetRankingRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpGetRankingResponse {
+}
+
+message PvpRankingEntryDTO {
+  PlayerInfoDTO player = 1;
+  AllianceInfoDTO alliance = 2;
+  int32 rank = 3;
+  int32 points = 4;
+}
+
+message PvpCollectTierRewardRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpCollectRankingRewardRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpCollectTargetResourcesRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpRefreshTargetsRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+  bool paid = 4;
+  PartialPaymentDTO invested_premium = 5;
+}
+
+message PvpGetHeroStatsRequest {
+  int64 event_id = 2;
+  string pvp_event_component_id = 3;
+}
+
+message PvpGetHeroStatsResponse {
+  int64 event_id = 1;
+  string pvp_component_definition_id = 2;
+}
+
+message PvpGetHeroStatDTO {
+  bool win = 1;
+  int32 tier_points = 2;
+  string hero_definition_id = 3;
+  int64 times_used = 4;
+}
+
+message PvpMaxTierDTO {
+  string group = 1;
+  int32 max_points_reached = 2;
+}
+
+message PvpTierRequirementDTO {
+  string event_component_id = 1;
+  string min_tier_definition_id = 2;
+  string max_tier_definition_id = 3;
+}
+
+message FinishPvpBattleTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  bool wins_only = 3;
+  string tier_group = 4;
+  string pvp_tier_definition_id = 5;
+}
+
+message PvpSaveDefensiveDecksRequest {
+  message PvpDeckHeroesDTO {
+  }
+  string pvp_event_component_id = 1;
+}
+
+message PvpForfeitActiveBattleRequest {
+  int64 event_id = 1;
+  string pvp_event_component_id = 2;
+}

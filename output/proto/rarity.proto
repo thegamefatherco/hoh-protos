@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+enum Rarity {
+  Rarity_COMMON = 0;
+  Rarity_UNCOMMON = 1;
+  Rarity_RARE = 2;
+  Rarity_EPIC = 3;
+  Rarity_LEGENDARY = 4;
+}

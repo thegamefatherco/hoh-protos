@@ -1,0 +1,135 @@
+# hoh-protos
+
+Extract `.proto` schemas from Unity **IL2CPP** Android **XAPK** builds that ship **Google.Protobuf** descriptors (built for [Heroes of History](https://github.com/thegamefatherco/hoh-protos) and similar games).
+
+The `hoh-protos` CLI unpacks the XAPK, runs [Il2CppDumper](https://github.com/Perfare/Il2CppDumper), merges embedded and rebuilt `FileDescriptorProto` data, and writes human-readable `.proto` files plus a `descriptors.pb` blob.
+
+## Requirements
+
+- **Python** 3.10 or newer
+- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`)
+- Network access the first time you run `hoh-protos setup` (downloads .NET 8 and Il2CppDumper into your user cache)
+
+Games that are not IL2CPP or do not use protobuf will fail with a clear error.
+
+## Install
+
+### From a clone (recommended for development)
+
+```bash
+git clone https://github.com/thegamefatherco/hoh-protos.git
+cd hoh-protos
+
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install -e .
+```
+
+### From PyPI (when published)
+
+```bash
+pip install hoh-protos
+```
+
+## One-time setup
+
+Download the bundled .NET runtime and Il2CppDumper (cached under your platform user cache directory, typically `~/.cache/hoh-protos` on Linux):
+
+```bash
+hoh-protos setup
+```
+
+To refresh cached tools:
+
+```bash
+hoh-protos setup --force
+```
+
+If you already have **dotnet** and **Il2CppDumper** on your machine, you can point at them instead of using the cache (see [Environment variables](#environment-variables)).
+
+## Quick start
+
+```bash
+hoh-protos setup
+hoh-protos "/path/to/game.xapk" -o ./output
+```
+
+Default output directory is `{xapk_stem}_protos/` next to the XAPK if you omit `-o`.
+
+Example layout after a successful run:
+
+```text
+output/
+├── descriptors.pb      # merged FileDescriptorSet
+├── il2cpp/
+│   └── dump.cs         # Il2CppDumper output
+└── proto/
+    └── …               # one .proto per descriptor file
+```
+
+Use `-v` for step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists, and `--keep-work` to retain the scratch directory under `output/.work`.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `hoh-protos setup` | Install .NET 8 + Il2CppDumper into the user cache |
+| `hoh-protos run GAME.xapk -o OUT` | Full pipeline (same as default invocation below) |
+| `hoh-protos GAME.xapk -o OUT` | Shorthand for `run` |
+| `hoh-protos extract --metadata … --dump-cs … --out descriptors.pb` | Build descriptors only |
+| `hoh-protos emit --in descriptors.pb --out-dir ./proto` | Render `.proto` files from an existing descriptor set |
+
+Run `hoh-protos --help` or `hoh-protos <command> --help` for flags and examples.
+
+You can also invoke the module directly:
+
+```bash
+python -m xapk_to_proto --help
+```
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `XAPK_TO_PROTO_DOTNET` | Path to a `dotnet` executable (skips cached runtime) |
+| `XAPK_TO_PROTO_DUMPER` | Path to `Il2CppDumper.dll` (skips cached dumper) |
+| `IL2CPP_DUMPER_VERSION` | Il2CppDumper release tag (default: `v6.7.46`) |
+
+## Contributing
+
+Contributions are welcome via [GitHub Issues](https://github.com/thegamefatherco/hoh-protos/issues) and pull requests.
+
+### Development setup
+
+1. Fork and clone the repository.
+2. Create a virtual environment and install in editable mode (see [Install](#from-a-clone-recommended-for-development)).
+3. Run `hoh-protos setup` so local pipeline runs can execute Il2CppDumper.
+4. Make changes under `src/xapk_to_proto/`.
+
+### Code style
+
+- Follow [`.editorconfig`](.editorconfig): UTF-8, LF line endings, **4 spaces** for Python, **2 spaces** for other files.
+- The repo’s [VS Code settings](.vscode/settings.json) use **Ruff** for Python formatting on save; matching that locally keeps diffs small.
+
+### Pull requests
+
+1. Branch from `main` with a focused change (one feature or fix per PR when possible).
+2. Describe what you changed and how you verified it (e.g. `hoh-protos --help`, a smoke run on a test XAPK if you have one).
+3. Do not commit game APKs/XAPKs, extracted IL2CPP binaries, or generated `proto/` trees unless the project explicitly adds fixtures later.
+
+There is no automated test suite yet; manual CLI checks are the expected verification path.
+
+### Reporting bugs
+
+Include Python version, OS, the command you ran, and the error text. Redact paths or package names if needed; avoid attaching copyrighted game assets to public issues.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Disclaimer
+
+This project is **not affiliated** with InnoGames, nor officially connected to the creators or publishers of Heroes of History. All rights to the game, its assets, and intellectual property are owned by their respective holders.
+
+**This project is for educational purposes only and not meant for direct commercial use.** The way you use the data generated by this project is up to you and the maintainers have no responsibility for your actions. Decompiled data from distributables have the same license as the one that you accept when you download or install the respective distributables, unless you were given otherwise written consent from the publishers.

@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/any.proto";
+
+message StoryDefinitionDTO {
+  string id = 1;
+  string display_point = 2;
+  string display_definition_id = 3;
+  bool sequences = 4;
+  bool skippable = 5;
+  google.protobuf.Any display_component = 6;
+}
+
+message StorySequenceDTO {
+  string actor_id = 1;
+  string translation_key = 2;
+  string position = 3;
+  string emote = 4;
+  string backdrop_asset_id = 5;
+  bool auto_continue = 6;
+  string tutorial_animation = 7;
+  string voiceline = 8;
+  float display_time = 9;
+  string display_mode = 10;
+}
+
+message StorySeasonPassClaimDisplayComponentDTO {
+  int32 checkpoint = 1;
+}
+
+message StoryEventOpenDisplayComponentDTO {
+  string event_definition_id = 1;
+}
+
+message StoryEventEndDisplayComponentDTO {
+  string event_definition_id = 1;
+}
+
+message StoryBattleStartDisplayComponentDTO {
+  string encounter_definition_id = 1;
+}
+
+message StoryBattleEndDisplayComponentDTO {
+  string encounter_definition_id = 1;
+}
+
+message StoryQuestStartDisplayComponentDTO {
+  string questline_definition_id = 1;
+}
+
+message StoryQuestFinishDisplayComponentDTO {
+  string questline_definition_id = 1;
+}
+
+message StoryTechUnlockDisplayComponentDTO {
+  string technology_definition_id = 1;
+}
+
+message StoryTutorialDisplayComponentDTO {
+}
+
+message StoryFinishRequest {
+  string story_definition_id = 1;
+}
+
+message StoryResetRequest {
+  string story_definition_id = 1;
+}

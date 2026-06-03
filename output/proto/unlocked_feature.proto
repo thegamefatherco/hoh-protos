@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "player.proto";
+import "reward.proto";
+
+enum UnlockableFeatureConstant {
+  UnlockableFeatureConstant_ALLIANCE = 0;
+  UnlockableFeatureConstant_WONDERS = 1;
+  UnlockableFeatureConstant_EVENTS = 3;
+  UnlockableFeatureConstant_TREASURE_HUNT = 4;
+  UnlockableFeatureConstant_SEASON_PASS = 5;
+  UnlockableFeatureConstant_ALLIANCE_CITY = 6;
+  UnlockableFeatureConstant_OFFERWALL = 8;
+  UnlockableFeatureConstant_DAILY_BONUS = 9;
+  UnlockableFeatureConstant_PVP = 10;
+  UnlockableFeatureConstant_RIFT = 11;
+  UnlockableFeatureConstant_BATTLE_SPEED_UP = 12;
+  UnlockableFeatureConstant_AUTO_BATTLE = 13;
+  UnlockableFeatureConstant_EVENT_CITIES = 14;
+  UnlockableFeatureConstant_RELICS = 15;
+  UnlockableFeatureConstant_FURNACE = 16;
+  UnlockableFeatureConstant_CHRONO_SHOP = 17;
+  UnlockableFeatureConstant_EQUIPMENT = 18;
+  UnlockableFeatureConstant_EQUIPMENT_MODE_2 = 19;
+  UnlockableFeatureConstant_EQUIPMENT_MODE_3 = 20;
+  UnlockableFeatureConstant_ELITEARENA = 21;
+  UnlockableFeatureConstant_PRIVATE_CHAT = 22;
+  UnlockableFeatureConstant_PANTHEON = 23;
+}
+
+message UnlockFeatureRequest {
+  UnlockableFeatureConstant name = 1;
+}
+
+message UnlockedFeatureDTO {
+  UnlockableFeatureConstant feature = 1;
+  bool is_unlocked = 2;
+}
+
+message UnlockedFeaturesDTO {
+  PlayerInfoDTO player = 1;
+}
+
+message UnlockFeatureRewardDTO {
+  UnlockableFeatureConstant feature = 1;
+  BaseRewardDTO base_data = 2;
+}
+
+message UnlockableFeatureRequirementDTO {
+  UnlockableFeatureConstant required_feature = 1;
+}

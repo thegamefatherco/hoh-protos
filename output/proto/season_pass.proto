@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/timestamp.proto";
+
+enum SeasonPassClaimType {
+  SeasonPassClaimType_ALL = 0;
+  SeasonPassClaimType_REGULAR = 1;
+  SeasonPassClaimType_PREMIUM = 2;
+}
+
+message SeasonPassEventDTO {
+  google.protobuf.Timestamp start_at = 2;
+  google.protobuf.Timestamp end_at = 3;
+  SeasonPassPlayerStateDTO state = 4;
+  bool is_new = 6;
+  int64 id = 7;
+  int32 event_day = 8;
+  string season_pass_definition_id = 10;
+}
+
+message SeasonPassDefinitionDTO {
+  string id = 1;
+  string group = 2;
+  string resource_definition_id = 3;
+  string checkpoints = 4;
+  string shop_offer_definition_id = 5;
+  bool is_endless = 7;
+  int64 cost_increase = 8;
+  bool is_default_season_pass = 9;
+  string display_event_type = 10;
+}
+
+message SeasonPassCheckpointDefinitionDTO {
+  string id = 1;
+  int32 order = 2;
+  bool regular_rewards = 3;
+  bool premium_rewards = 4;
+  bool highlighted = 5;
+}
+
+message SeasonPassCheckpointRewardsDTO {
+  int32 cycle = 1;
+}
+
+message SeasonPassPlayerStateDTO {
+  string definition_id = 1;
+  string age = 2;
+  bool premium_lane = 3;
+  int32 regular_checkpoint = 4;
+  int32 premium_checkpoint = 5;
+  int64 progress = 6;
+}
+
+message ClaimProgressRequest {
+  string season_pass_definition_id = 1;
+  SeasonPassClaimType type = 2;
+  bool claim_single_checkpoint = 4;
+  int32 checkpoint_to_claim = 5;
+  int32 max_checkpoint_to_claim = 6;
+}
+
+message SeasonPassProgressRequirementCheckDTO {
+  string event = 1;
+  string season_pass_group = 2;
+}
+
+message BuyProgressRequest {
+  int64 invested_premium = 2;
+  string season_pass_definition_id = 3;
+}
+
+message MarkSeasonPassSeenRequest {
+  int64 event_id = 2;
+  string season_pass_definition_id = 3;
+}

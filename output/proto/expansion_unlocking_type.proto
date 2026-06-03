@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+enum ExpansionUnlockingType {
+  ExpansionUnlockingType_REGULAR = 0;
+  ExpansionUnlockingType_PREMIUM = 1;
+  ExpansionUnlockingType_CONNECTOR = 2;
+  ExpansionUnlockingType_FREE = 3;
+}

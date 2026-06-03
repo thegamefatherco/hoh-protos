@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "init.proto";
+
+enum IncidentState {
+  IncidentState_SPAWNED = 0;
+  IncidentState_SOLVING = 1;
+  IncidentState_COMPLETED = 2;
+}
+
+message IncidentDefinitionDTO {
+  string id = 1;
+  string city = 3;
+  google.protobuf.Duration available_duration = 4;
+  int32 chance = 5;
+  string components = 6;
+  string incident_character = 7;
+  string variation = 8;
+  double skip_price_per_minute = 9;
+}
+
+message SolveComponentDTO {
+  string id = 1;
+  google.protobuf.Duration duration = 2;
+  ActionComponentDTO start = 3;
+  ActionComponentDTO finish = 4;
+  ActionComponentDTO complete = 5;
+  int32 required_workers = 6;
+}
+
+message IncidentDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  string city_definition_id = 3;
+  int32 spot = 4;
+  IncidentState state = 5;
+  google.protobuf.Timestamp spawned_at = 6;
+  google.protobuf.Timestamp solving_started_at = 7;
+  google.protobuf.Timestamp despawn_at_override = 8;
+}
+
+message QueuedIncidentDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  int64 city_id = 3;
+  google.protobuf.Timestamp queued_at = 4;
+}
+
+message PlayerIncidentsDTO {
+}
+
+message CityIncidentsDTO {
+  string city_definition_id = 1;
+  google.protobuf.Timestamp incidents = 2;
+  google.protobuf.Timestamp spawn_timer_started_at = 3;
+}
+
+message GetCityIncidentsRequest {
+  int64 city_id = 1;
+}
+
+message SpawnIncidentInCityRequest {
+  int64 city_id = 1;
+  int32 amount = 2;
+}
+
+message SyncIncidentRequest {
+  int64 id = 1;
+}
+
+message MarkIncidentAsSeenRequest {
+  int64 id = 1;
+  int32 spot_id = 2;
+}
+
+message SolveIncidentRequest {
+  int64 id = 1;
+}
+
+message CollectIncidentRequest {
+  int64 id = 1;
+}
+
+message SkipIncidentRequest {
+  int64 id = 1;
+}
+
+message IncidentRewardDTO {
+  bool hidden = 1;
+  string city = 2;
+  string incident = 3;
+  int32 amount = 4;
+}

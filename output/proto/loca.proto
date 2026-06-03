@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message LocaRequest {
+  string locale = 1;
+  string checksum = 2;
+}
+
+message LocaResponse {
+  string locale = 1;
+  string checksum = 2;
+  string translations = 3;
+  string version = 4;
+  bool use_fallback = 5;
+}
+
+message LocaTranslationDTO {
+  string key = 1;
+}
+
+message CompressedLocaResponse {
+  string locale = 1;
+  string checksum = 2;
+  string version = 3;
+  bool use_fallback = 4;
+  bytes data = 5;
+}

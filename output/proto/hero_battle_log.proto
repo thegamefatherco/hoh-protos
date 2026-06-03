@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message HeroBattleLogDTO {
+}
+
+message HeroBattleLogEntry {
+  int64 millis_since_wave_start = 1;
+  object attack = 10;
+  object ability = 11;
+  object effect = 12;
+  object effect_end = 13;
+  object cleanse = 14;
+  object battle_end = 15;
+  object status_effect_interaction = 16;
+}
+
+message HeroAbilityLogEntry {
+  enum Trigger {
+    OTHER = 0;
+    PLAYER_MANUAL = 1;
+    ENEMY_MANUAL = 2;
+  }
+  string ability_definition_id = 1;
+  int32 ability_id = 2;
+  Trigger trigger = 3;
+  HeroBattleLogUnitDTO trigger_unit = 4;
+  int32 windup_duration = 5;
+  bool disable_pause_for_ability = 6;
+}
+
+message HeroStatusEffectInteractionLogEntry {
+  string definition_id = 1;
+  int32 interaction_id = 2;
+}
+
+message HeroEffectEndLogEntry {
+  int32 effect_id = 1;
+  int32 effect_target_index = 2;
+}
+
+message HeroEffectLogEntry {
+  message AbilityBlock {
+  }
+  message Aura {
+  }
+  message Cast {
+  }
+  message Chance {
+    bool active = 1;
+  }
+  message Cleanse {
+  }
+  message Freeze {
+  }
+  message Invincibility {
+  }
+  message MindControl {
+  }
+  message MoveDistance {
+    float new_x = 1;
+    float new_y = 2;
+  }
+  message Recurring {
+  }
+  message SpawnSquad {
+    int32 hero_id = 1;
+  }
+  message SpiritLink {
+  }
+  message DamageTransfer {
+    float damage_percent = 1;
+  }
+  message StatChange {
+    string stat_definition_id = 1;
+    float change = 2;
+    bool crit = 10;
+    bool dodge = 11;
+  }
+  message Stun {
+  }
+  message NonTargetable {
+  }
+  message MultiLaneTargetable {
+  }
+  message Taunt {
+    int32 target_unit_id = 1;
+  }
+  message Charm {
+  }
+  message Damage {
+    float damage_ = 1;
+    bool apply_evasion = 2;
+    bool apply_accuracy = 3;
+    bool piercing_damage = 4;
+    bool calculate_damage = 5;
+  }
+  message Temporary {
+    int32 duration = 1;
+  }
+  message Immunity {
+  }
+  message Ghosting {
+  }
+  message DespawnEffect {
+  }
+  message UnitCountStatChange {
+    StatChange stat_change = 1;
+    int32 unit_count = 2;
+  }
+  int32 effect_parent_id = 1;
+  int32 origin_effect_id = 2;
+  int32 origin_target_index = 3;
+  int32 effect_id = 4;
+  int32 effect_target_index = 5;
+  int32 effect_index = 6;
+  HeroBattleLogUnitDTO origin_unit = 7;
+  HeroBattleLogUnitDTO target_unit = 8;
+  object non_targetable = 116;
+  object immunity = 117;
+  object unit_count_stat_change = 118;
+  object damage_transfer = 119;
+  object multi_lane_targetable = 120;
+  object charm = 121;
+  object damage = 122;
+  object ghosting = 123;
+  object despawn_effect = 124;
+}
+
+message HeroAbilityEffectCleansedLogEntry {
+  int32 cleanse_effect_id = 1;
+  int32 cleanse_effect_target_index = 2;
+  int32 removed_effect_id = 3;
+  int32 removed_effect_target_index = 4;
+}
+
+message HeroBattleAttackLogEntry {
+  HeroBattleLogUnitDTO attacker = 1;
+  int64 targets = 2;
+  int64 projectile_fired_at_millis = 3;
+}
+
+message HeroBattleAttackLogTargetDTO {
+  HeroBattleLogUnitDTO target = 1;
+  float damage_dealt = 2;
+  bool crit = 3;
+  bool dodge = 4;
+}
+
+message HeroBattleLogUnitDTO {
+  int32 unit_id_in_battle = 1;
+  float location_x = 2;
+  float location_y = 3;
+}
+
+message HeroBattleEndLogEntry {
+  enum BattleEndTypeDTO {
+    ByTime = 0;
+    ByTeamDeath = 1;
+  }
+  BattleEndTypeDTO type = 1;
+}

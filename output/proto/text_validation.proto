@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+enum TextValidationError {
+  TextValidationError_NO_ERROR = 0;
+  TextValidationError_IS_OCCUPIED = 1;
+  TextValidationError_IS_BLACKLISTED = 2;
+}
+
+enum TextValidationTypeConstants {
+  TextValidationTypeConstants_ALLIANCE_NAME = 0;
+  TextValidationTypeConstants_ALLIANCE_DESCRIPTION = 1;
+  TextValidationTypeConstants_REQUEST_MESSAGE = 2;
+  TextValidationTypeConstants_CHAT_MESSAGE = 3;
+  TextValidationTypeConstants_BROADCAST_CHAT_MESSAGE = 4;
+  TextValidationTypeConstants_BROADCAST_MESSAGE = 5;
+  TextValidationTypeConstants_WOA_MARKER_TEXT = 6;
+}
+
+message TextValidationConfigurationDTO {
+  string type = 1;
+  int32 min_length = 2;
+  int32 max_length = 3;
+}
+
+message TextValidationsRequestDTO {
+}
+
+message TextValidationRequestElementDTO {
+  TextValidationTypeConstants type = 1;
+  string text = 2;
+}
+
+message TextValidationsResponseDTO {
+}
+
+message TextValidationResponseElementDTO {
+  TextValidationTypeConstants type = 1;
+  string sanitized_text = 2;
+  TextValidationError error = 3;
+}

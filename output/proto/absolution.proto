@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message AbsolutionRequest {
+}
+
+message AbsolutionResponse {
+}

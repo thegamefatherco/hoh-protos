@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message SelectionKitDefinitionDTO {
+  string id = 1;
+  int32 rewards = 2;
+  int32 selectable_rewards_amount = 3;
+  string asset_id = 4;
+}
+
+message SelectionKitOpenRequest {
+  string definition_id = 1;
+}

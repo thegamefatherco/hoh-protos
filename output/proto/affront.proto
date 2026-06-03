@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+enum ReportResponseCode {
+  ReportResponseCode_SUCCESS = 0;
+  ReportResponseCode_DUPLICATE = 1;
+}
+
+message ReportChatMessageRequest {
+  string chat_message_uuid = 1;
+  string chat_channel_src = 2;
+  string reason = 3;
+}
+
+message ReportPlayerNameRequest {
+  int32 player_id = 1;
+  string reason = 2;
+}
+
+message ReportAllianceProfileRequest {
+  int64 alliance_id = 1;
+  string reason = 2;
+}
+
+message ReportAllianceApplicationRequest {
+  int64 application_id = 1;
+  string reason = 2;
+}
+
+message ReportAllianceApplicationRejectionRequest {
+  int64 application_id = 1;
+  string reason = 2;
+}
+
+message ReportAllianceInviteRequest {
+  int64 invite_id = 1;
+  string reason = 2;
+}
+
+message ReportAllianceInviteRejectionRequest {
+  int64 invite_id = 1;
+  string reason = 2;
+}
+
+message ReportVisitCityRequest {
+  int32 player_id = 1;
+  int64 city_id = 2;
+  string reason = 3;
+}
+
+message ReportResponseDTO {
+  ReportResponseCode code = 1;
+}
+
+message AffrontWarningNotificationDTO {
+  string message = 1;
+}

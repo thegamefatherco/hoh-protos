@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message EventCityComponentDTO {
+  string id = 1;
+  string city_definition_id = 2;
+  string technologies = 3;
+  string wonder_definition_id = 4;
+}
+
+message EventCityStateDTO {
+  int64 city_id = 1;
+}

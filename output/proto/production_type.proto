@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+enum ProductionType {
+  ProductionType_BASE = 0;
+  ProductionType_WORKER = 1;
+  ProductionType_CULTURE = 2;
+}

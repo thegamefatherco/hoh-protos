@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "init.proto";
+import "technology_state.proto";
+
+message AgeDefinitionDTO {
+  string id = 1;
+  int32 order = 2;
+}
+
+message TechnologyDefinitionDTO {
+  string id = 1;
+  string name = 2;
+  string age = 3;
+  int32 column = 4;
+  int32 order = 5;
+}
+
+message ResearchStateDTO {
+}
+
+message TechnologyDTO {
+  string id = 1;
+  string definition_id = 2;
+  TechnologyState state = 3;
+}
+
+message ResearchComponentDTO {
+  string id = 1;
+  ActionComponentDTO start = 3;
+  ActionComponentDTO finish = 4;
+}
+
+message ResearchRequirementDTO {
+  string id = 1;
+}
+
+message TechnologyColumnNotReachedRequirementDTO {
+  string id = 1;
+}
+
+message QuestsInAgeRequirementDTO {
+  string id = 1;
+}
+
+message InvestOnTechnologyRequest {
+  string technology_definition_id = 1;
+  int64 invested_premium = 4;
+}
+
+message UnlockTechnologyRequest {
+  string technology_definition_id = 1;
+}
+
+message TechnologyPush {
+  TechnologyDTO technology = 1;
+}
+
+message AgeAdvancementChatNotificationDTO {
+  int32 player_id = 1;
+  string age_definition_id = 2;
+}

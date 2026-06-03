@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/duration.proto";
+import "hero_unit.proto";
+import "tutorial.proto";
+
+message ConstantsDefinitionDTO {
+  string id = 1;
+  int32 max_hero_deck_size = 2;
+  TutorialConstantsDefinitionDTO tutorial = 3;
+  IncidentConstantsDefinitionDTO building_group_sorting = 4;
+  IncidentConstantsDefinitionDTO incident = 5;
+  PlayerNameConstantsDTO player_name = 7;
+  double construction_skip_cost_base = 10;
+  double construction_skip_cost_exponent = 11;
+  double upgrade_skip_cost_base = 12;
+  double upgrade_skip_cost_exponent = 13;
+  double expansion_skip_cost_base = 14;
+  double expansion_skip_cost_exponent = 15;
+  int32 negotiation_game_turn_cost = 16;
+  CrmConstantsDefinitionDTO crm = 17;
+  WondersConstantsDefinitionDTO wonders = 18;
+  int32 event_multi_purchase_amount = 19;
+  string default_construction_slots = 20;
+  int32 max_happiness_level = 21;
+  int32 hero_deaths_to_stars = 22;
+  int32 star_requirement_for_instant_play = 23;
+  string hero_unit_power_formula_definition_id = 24;
+  string support_unit_power_formula_definition_id = 25;
+  string app_rating_encounter_id = 26;
+  UnitStatLabelsDTO focus_stat_labels = 27;
+  UnitStatLabelsDTO focus_regen_stat_labels = 28;
+  string daily_free_pull_notification_offers = 31;
+  string expected_unit_power_formula_definition_id = 32;
+  int32 season_pass_upselling_checkpoint = 33;
+  ResourceConversionConstantsDefinitionDTO resource_conversion = 34;
+  string equipment_constants_definition_id = 35;
+  int32 max_multi_auto_battle_count = 36;
+  int32 max_harbor_shop_purchase_count = 37;
+}
+
+message WondersConstantsDefinitionDTO {
+  int32 gears_to_wonder_orb_exchange_rate = 1;
+  int32 orb_multi_purchase_amount = 2;
+  int32 maximum_wonder_level = 3;
+  int32 maximum_contribution_requests_per_level = 4;
+  google.protobuf.Duration crate_research_point_amounts = 5;
+  google.protobuf.Duration promotion_runtime = 6;
+}
+
+message SeasonPassConstantsDefinitionDTO {
+}
+
+message SeasonPassEventsConstantsDefinitionDTO {
+  string event_name = 1;
+  google.protobuf.Duration extend_duration = 2;
+  google.protobuf.Duration pause_duration = 3;
+}
+
+message IncidentConstantsDefinitionDTO {
+  int32 incident_spawn_interval = 1;
+  int32 incident_spawn_delay = 2;
+  int32 incident_spawn_delay_variance = 3;
+  int32 incident_skip_spawn_delay_after_offline_seconds = 4;
+  int32 max_concurrent_incidents = 5;
+  int32 incident_cap = 6;
+}
+
+message ResourceConversionConstantsDefinitionDTO {
+  float min_conversion_factor = 1;
+  float med_conversion_factor = 2;
+}
+
+message CrmConstantsDefinitionDTO {
+  google.protobuf.Duration poll_interval = 1;
+  google.protobuf.Duration max_content_fetch_delay = 2;
+  google.protobuf.Duration max_instant_content_fetch_delay = 3;
+}
+
+message PlayerNameConstantsDTO {
+  int32 min_length = 1;
+  int32 max_length = 2;
+  string pattern = 3;
+}
+
+message GameSpeedResponse {
+  int32 game_speed = 1;
+}

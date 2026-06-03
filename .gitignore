@@ -1,0 +1,9 @@
+__pycache__/
+
+output/*
+!output/proto/
+
+.venv/
+.env
+.env.*
+!.env.example

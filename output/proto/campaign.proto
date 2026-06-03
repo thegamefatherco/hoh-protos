@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "init.proto";
+import "resource.proto";
+
+message CampaignInstantPlayRequest {
+  int32 amount = 1;
+  string difficulty_definition_id = 2;
+  string encounter_definition_id = 3;
+  PartialPaymentDTO invested_premium = 4;
+}
+
+message CampaignCollectRegionUnlockReward {
+  string difficulty_definition_id = 2;
+  string region_definition_id = 3;
+}
+
+message CampaignCollectContinentUnlockReward {
+  string difficulty_definition_id = 2;
+  string continent_definition_id = 3;
+}
+
+message EncounterPush {
+  EncounterDTO encounter = 1;
+}
+
+message DifficultyDefinitionDTO {
+  string id = 1;
+  CampaignBattleBoostDTO boost = 2;
+  int32 order = 3;
+}
+
+message WorldDefinitionDTO {
+  string id = 1;
+  int32 order = 2;
+  string continent_definition_id = 3;
+  string world_type_definition_id = 4;
+}
+
+message ContinentDefinitionDTO {
+  string id = 1;
+  string by_difficulty = 3;
+  string world_definition_id = 4;
+}
+
+message ContinentDefinitionByDifficultyDTO {
+  ActionComponentDTO finish = 1;
+}
+
+message RegionDefinitionDTO {
+  string id = 1;
+  string components = 4;
+  string continent_definition_id = 5;
+}
+
+message RegionDefinitionByDifficultyDTO {
+  ActionComponentDTO finish = 1;
+  CampaignBattleBoostDTO boost_override = 2;
+}
+
+message EncounterDefinitionDTO {
+  string id = 1;
+  string battle_definition_id = 2;
+  string components = 4;
+  string banner_resource = 5;
+  string first_time_banner_icon = 6;
+}
+
+message EncounterDefinitionByDifficultyDTO {
+  ActionComponentDTO play_start = 1;
+  ActionComponentDTO instant_play_start = 2;
+  ActionComponentDTO play_finish = 3;
+  ActionComponentDTO unlock_finish = 4;
+  CampaignBattleBoostDTO boost_override = 5;
+  string battle_definition_id = 6;
+  string banner_resource = 7;
+  string first_time_banner_icon = 8;
+}
+
+message CampaignBattleBoostDTO {
+}
+
+message FactionDefinitionDTO {
+  string id = 1;
+}
+
+message FactionComponentDTO {
+  string definition_id = 1;
+  string leader = 2;
+}
+
+message CampaignStateDTO {
+}
+
+message CampaignDifficultyStateDTO {
+  string difficulty_definition_id = 1;
+}
+
+message EncounterDTO {
+  string difficulty_definition_id = 1;
+  string encounter_definition_id = 2;
+  int32 stars = 3;
+}
+
+message CampaignMapBattleLocationDTO {
+  string difficulty_definition_id = 1;
+  string encounter_definition_id = 2;
+}
+
+message HistoricBattleLocationDTO {
+  string difficulty_definition_id = 1;
+  string encounter_definition_id = 2;
+}
+
+message EncounterUnlockedRequirementDTO {
+  string difficulty_definition_id = 1;
+  string encounter_definition_id = 2;
+  int32 required_stars = 3;
+}
+
+message RegionAcquiredRequirementDTO {
+  string difficulty_definition_id = 1;
+}
+
+message AcquireRegionTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  string difficulty_definition_id = 3;
+  string continent_definition_id = 4;
+  string region_definition_id = 5;
+  string world_definition_id = 6;
+  string world_type_definition_id = 7;
+}
+
+message AcquireEncounterTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  string difficulty_definition_id = 3;
+  string continent_definition_id = 4;
+  string region_definition_id = 5;
+  string world_definition_id = 7;
+  string world_type_definition_id = 8;
+}
+
+message CollectCampaignStarsTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  string difficulty_definition_id = 3;
+  string continent_definition_id = 4;
+  string region_definition_id = 5;
+  string world_definition_id = 6;
+  string world_type_definition_id = 7;
+}
+
+message CompleteEncounterTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  string difficulty_definition_id = 3;
+  string continent_definition_id = 4;
+  string region_definition_id = 5;
+  bool encounter_definition_id = 6;
+  bool with_instant_play = 7;
+  bool with_battle = 8;
+  string world_definition_id = 9;
+  string world_type_definition_id = 10;
+}
+
+message EncounterQuickjumpDTO {
+  string difficulty_definition_id = 1;
+  string encounter_definition_id = 2;
+  bool on_unlock_only = 3;
+}
+
+message WorldTypeDefinitionDTO {
+  string id = 1;
+}

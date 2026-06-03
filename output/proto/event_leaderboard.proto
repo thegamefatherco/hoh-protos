@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/timestamp.proto";
+
+message LeaderboardPlayerResourceEventComponentDTO {
+  string definition_id = 1;
+  int32 leaderboard_size = 2;
+  int64 points_to_qualify = 3;
+  string points_resource_definition_id = 4;
+}
+
+message LeaderboardPlayerResourceEventStateDTO {
+  int64 group_id = 1;
+  int64 points = 2;
+  bool rewards_collected = 3;
+}
+
+message LeaderboardPush {
+  LeaderboardDTO leaderboard = 1;
+}
+
+message LeaderboardDTO {
+  int64 group_id = 1;
+}
+
+message ParticipantDTO {
+  int64 points = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  object player = 10;
+}
+
+message LeaderboardEntryUpdatedPush {
+  int64 group_id = 1;
+  int64 points_gained = 2;
+  ParticipantDTO participant = 3;
+}

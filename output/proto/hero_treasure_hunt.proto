@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "alliance.proto";
+import "alliance_banner.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "ingame_event.proto";
+import "init.proto";
+import "player.proto";
+import "resource.proto";
+import "reward.proto";
+
+message HeroTreasureHuntUnexhaustRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  PartialPaymentDTO hero_definition_id = 4;
+  PartialPaymentDTO payment = 5;
+}
+
+message HeroTreasureChangeDifficultyRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  int32 difficulty = 4;
+}
+
+message HeroTreasureHuntHealRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  string hero_definition_id = 4;
+  string unit_stat_definition_id = 5;
+  PartialPaymentDTO payment = 6;
+}
+
+message HeroTreasureHuntSkipNegotiationRequest {
+  HeroTreasureHuntEncounterLocationDTO encounter = 2;
+}
+
+message HeroTreasureHuntCollectChestRequest {
+  HeroTreasureHuntEncounterLocationDTO encounter = 2;
+}
+
+message HeroTreasureHuntCollectAllianceProgressRewardRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  int32 progress = 4;
+}
+
+message HeroTreasureHuntCollectUncollectedRewardsRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+}
+
+message HeroTreasureHuntMarkAllianceProgressSeenRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  int32 progress = 4;
+}
+
+message HeroTreasureHuntPurchaseAttemptsRequest {
+  int64 event_id = 2;
+  string component_definition_id = 3;
+  PartialPaymentDTO payment = 4;
+}
+
+message HeroTreasureHuntEncounterLocationDTO {
+  int64 event_id = 1;
+  int32 difficulty = 2;
+  int32 stage = 3;
+  int32 encounter = 4;
+}
+
+message HeroTreasureHuntEventComponentDTO {
+  string definition_id = 1;
+  string group = 2;
+  int32 retained_stats = 4;
+  int32 alliance_ranking_group_size = 7;
+  int32 alliance_progress_rewards = 8;
+  int32 min_encounter_progress_for_checkpoint_chests = 9;
+  ActionComponentDTO promoted_rewards = 11;
+  ActionComponentDTO unexhaust_cost = 12;
+}
+
+message HeroTreasureHuntLeagueDTO {
+  int32 alliance_ranking_rewards = 1;
+  int32 max_promotion_rank = 2;
+  int32 min_demotion_rank = 3;
+}
+
+message HeroTreasureHuntRetainedStatDTO {
+  string unit_stat_definition_id = 1;
+  float percentage_points_healed = 2;
+  ActionComponentDTO healing_cost = 3;
+}
+
+message HeroTreasureHuntEventDifficultyDTO {
+  int32 difficulty = 1;
+  int32 stages = 2;
+  int32 recommended_power = 3;
+  int32 promoted_rewards = 4;
+  int32 exhaustion = 5;
+}
+
+message HeroTreasureHuntEventStageDTO {
+  int32 stage = 1;
+}
+
+message HeroTreasureHuntEventEncounterDTO {
+  int32 encounter_id = 1;
+  int32 section = 2;
+  ActionComponentDTO start = 3;
+  ActionComponentDTO finish = 4;
+  int32 progress_points = 5;
+  object battle_definition_id = 10;
+  object negotiation_definition_id = 11;
+  object chest = 12;
+}
+
+message HeroTreasureHuntEventStateDTO {
+  int32 difficulty = 1;
+  int32 stage = 2;
+  int32 encounter = 3;
+  string stored_stats = 5;
+  string age_definition_for_rewards = 6;
+  bool alliance_rank_reward_collected = 9;
+  google.protobuf.Timestamp alliance_progress_rewards_collected = 10;
+  google.protobuf.Timestamp alliance_progress_seen_at = 11;
+  int32 alliance_progress_seen = 12;
+  int32 attempts_purchased = 13;
+  HeroTreasureHuntStateAtRemovalFromAllianceDTO state_at_removal_from_alliance = 14;
+  HeroTreasureHuntEventDifficultyDTO exhaustion_states = 15;
+  HeroTreasureHuntEventDifficultyDTO current_difficulty = 16;
+  bool single_player = 17;
+}
+
+message HeroTreasureHuntStateAtRemovalFromAllianceDTO {
+  InGameEventStateDTO state = 1;
+  int32 alliance_progress = 2;
+  int32 alliance_rank = 3;
+  int32 alliance_league = 6;
+  AllianceBannerDTO alliance_banner = 7;
+}
+
+message HeroTreasureHuntStoredUnitStatDTO {
+  string hero_unit_definition_id = 1;
+  string unit_stat_definition_id = 2;
+  float value = 3;
+}
+
+message HeroTreasureHuntExhaustionStateDTO {
+  string hero_unit_definition_id = 1;
+  int32 exhaustion_duration = 2;
+}
+
+message HeroTreasureHuntHealingRewardDTO {
+  string definition_id = 1;
+  BaseRewardDTO base_data = 2;
+  string valid_event_groups = 3;
+  string stat_definition_id = 4;
+  float healed = 5;
+}
+
+message HeroTreasureHuntPlayerPointsPush {
+  int64 event_id = 1;
+  string component = 2;
+  PlayerInfoDTO player = 3;
+  int32 points = 4;
+  int32 alliance_points = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  int32 difficulty = 7;
+}
+
+message HeroTreasureHuntAlliancePointsPush {
+  int64 event_id = 1;
+  string component = 2;
+  AllianceInfoDTO alliance = 3;
+  int32 points = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  int32 league = 6;
+}
+
+message HeroTreasureHuntParticipationRequirementDTO {
+  string event_definition_id = 1;
+  google.protobuf.Duration minimum_time_remaining = 2;
+}
+
+message HeroTreasureHuntDifficultyUnlockedRequirementDTO {
+  string treasure_hunt_group = 1;
+  int32 min_difficulty = 2;
+  int32 max_difficulty = 3;
+}
+
+message CompleteHeroTreasureHuntEncounterTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  bool include_chests = 3;
+  bool include_negotiations = 4;
+  bool include_battles = 5;
+}
+
+message CompleteHeroTreasureHuntStageTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  int32 min_difficulty = 3;
+  int32 max_difficulty = 4;
+  int32 stage = 5;
+}
+
+message HeroTreasureHuntUnlockDifficultyRewardDTO {
+  BaseRewardDTO base_data = 1;
+  string treasure_hunt_group = 2;
+  int32 unlocked_difficulty = 3;
+  ActionComponentDTO unlock_reward = 4;
+}
+
+message HeroTreasureHuntDifficultyDynamicActionChangeDTO {
+}
+
+message HeroTreasureHuntUnlockedDifficultyDynamicActionChangeDTO {
+  string treasure_hunt_group = 1;
+}
+
+message HeroTreasureHuntPlayerStoredStateDTO {
+  string group = 1;
+  int32 unlocked_difficulty = 2;
+}

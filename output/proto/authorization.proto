@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message RoleDefinitionDTO {
+  string definition_id = 1;
+  RoleDefinitionDTO permission = 2;
+  RoleDefinitionDTO lower_rank = 3;
+}

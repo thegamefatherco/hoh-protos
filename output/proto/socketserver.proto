@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message SocketLoginResponse {
+  string url = 1;
+  string token = 2;
+}
+
+message SocketServerPing {
+  string message = 1;
+}
+
+message OpenChatSessionRequest {
+  int32 target_player_id = 1;
+}
+
+message CloseChatSessionRequest {
+  int32 target_player_id = 1;
+}
+
+message IgnoredPlayersResponse {
+}

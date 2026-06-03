@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "ms-python.vscode-pylance",
+    "ms-python.debugpy",
+    "ms-python.vscode-python-envs",
+    "charliermarsh.ruff",
+    "editorconfig.editorconfig",
+    "tamasfe.even-better-toml",
+    "ms-dotnettools.vscode-dotnet-runtime",
+    "peterj.proto",
+    "icsharpcode.ilspy-vscode"
+  ]
+}

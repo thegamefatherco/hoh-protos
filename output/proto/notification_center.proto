@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+message NotificationCenterPush {
+}
+
+message NotificationCenterMessageDTO {
+  int64 id = 1;
+  google.protobuf.Any data = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message NotificationCenterDeleteRequest {
+  int64 notification_id = 1;
+}

@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "init.proto";
+import "rarity.proto";
+import "resource.proto";
+
+message RiftPullRequest {
+  string rift_definition_id = 2;
+  int32 action_index = 3;
+  PartialPaymentDTO invested_premium = 4;
+}
+
+message RiftFreePullRequest {
+  string rift_definition_id = 2;
+}
+
+message RiftPromotionSeenRequest {
+  int64 promotion_id = 1;
+}
+
+message RiftPush {
+}
+
+message RiftPullPush {
+}
+
+message RiftPromotionPush {
+}
+
+message RiftPromotionPlayerDataPush {
+}
+
+message RiftDefinitionDTO {
+  string definition_id = 1;
+  bool actions = 2;
+  bool always_active = 3;
+  int32 components = 4;
+  int32 free_pulls_per_day = 5;
+  RiftOpenActionDTO free_pull_action = 6;
+  int32 free_pull_reset_time_in_seconds = 7;
+  google.protobuf.Duration free_pull_cooldown = 8;
+  string backdrop_asset_id = 9;
+  int32 display_priority = 10;
+  string hide_rift_definition_id = 11;
+  string group = 12;
+}
+
+message RiftOpenActionDTO {
+  int32 number_of_pulls = 1;
+  ActionComponentDTO action = 2;
+}
+
+message RiftPromotionComponentDTO {
+  string persistence_group = 1;
+}
+
+message RiftRarityPromotionComponentDTO {
+}
+
+message RiftDTO {
+  int64 id = 1;
+  string rift_definition_id = 2;
+  google.protobuf.Timestamp valid_from = 3;
+  google.protobuf.Timestamp valid_until = 4;
+}
+
+message RiftPullDTO {
+  string rift_definition_id = 1;
+  int32 free_pulls = 2;
+  google.protobuf.Timestamp last_pull = 3;
+}
+
+message RiftPromotionDTO {
+  message RarityModifierDTO {
+    Rarity rarity = 1;
+    float value = 2;
+  }
+  int64 id = 1;
+  string asset_id = 2;
+  google.protobuf.Timestamp valid_from = 3;
+  google.protobuf.Timestamp valid_until = 4;
+  int32 display_heroes = 7;
+  int32 display_priority = 8;
+  int32 display_padding = 9;
+  float chance_multiplier = 10;
+  int32 guaranteed_pull_after = 11;
+  string persistence_group = 12;
+  bool display_highlight_in_client = 13;
+  bool highlight_new = 14;
+  float chance_addition = 15;
+  int32 rarity_multiplications = 102;
+  int32 rarity_display_priority = 103;
+}
+
+message RiftPromotionPlayerDataDTO {
+  int64 promotion_id = 1;
+  string rift_definition_id = 2;
+  string mystery_chest_definition_id = 3;
+  int32 failed_pulls = 4;
+  google.protobuf.Timestamp last_action_at = 5;
+  string persistence_group = 6;
+}
+
+message RiftEventComponentDTO {
+  string definition_id = 1;
+  string rift_definition_id = 2;
+  google.protobuf.Duration valid_after_event_end = 3;
+}
+
+message RiftEventStateDTO {
+  int64 rift_id = 1;
+}
+
+message RiftPromotionEventStateDTO {
+  int64 promotion_id = 1;
+}
+
+message RiftPromotionEventComponentDTO {
+  string id = 1;
+  google.protobuf.Duration valid_after_event_end = 2;
+  RiftPromotionDefinitionDTO promotion_definition = 3;
+  RiftRarityPromotionDefinitionDTO rarity_promotion_definition = 4;
+}
+
+message RiftPromotionDefinitionDTO {
+  string id = 1;
+  string displayed_heroes = 3;
+  string persistence_group = 4;
+}
+
+message RiftRarityPromotionDefinitionDTO {
+  string id = 1;
+}
+
+message OpenRiftTaskDTO {
+  string id = 1;
+  int64 amount = 2;
+  bool rift_definition_ids = 3;
+  bool ignore_free_pulls = 4;
+}

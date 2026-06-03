@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "init.proto";
+import "reward.proto";
+
+message MergeEventDefinitionDTO {
+  string id = 1;
+  int32 grid_width = 2;
+  int32 grid_height = 3;
+  ActionComponentDTO buckets = 5;
+  ActionComponentDTO joker = 6;
+  double order_skip_cost_per_minute = 7;
+  google.protobuf.Duration skip_cooldown_duration = 8;
+  string wallet_log_main_type = 9;
+}
+
+message MergeEventBucketComponentDTO {
+  string id = 1;
+  ActionComponentDTO spawn = 2;
+}
+
+message MergeEventItemDefinitionDTO {
+  string id = 1;
+  string group = 2;
+  int32 level = 3;
+  int32 group_order = 4;
+}
+
+message MergeEventItemRewardDTO {
+  string id = 1;
+  string merge_item_definition_id = 2;
+  BaseRewardDTO base_reward_data = 3;
+}
+
+message MergeItemDTO {
+  int32 x = 1;
+  int32 y = 2;
+  string merge_item_definition_id = 3;
+}
+
+message MergeEventBatchRequest {
+  string merge_event_definition_id = 1;
+}
+
+message SpawnItemRequestDTO {
+  int64 event_id = 1;
+  string merge_event_definition_id = 2;
+  string merge_bucket_id = 3;
+  google.protobuf.Timestamp spawn_at = 4;
+  int32 amount = 5;
+}
+
+message MoveItemRequestDTO {
+  int64 event_id = 1;
+  PositionDTO source_position = 2;
+  PositionDTO target_position = 3;
+  string merge_event_definition_id = 4;
+}
+
+message UseJokerRequestDTO {
+  int64 event_id = 1;
+  string merge_event_definition_id = 2;
+}
+
+message PositionDTO {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message MergeEventDTO {
+  MergeEventDefinitionDTO event_definition = 1;
+  google.protobuf.Timestamp start_at = 2;
+  google.protobuf.Timestamp end_at = 3;
+  google.protobuf.Any daily_special = 4;
+  int32 event_day = 7;
+  int64 merge_items = 8;
+  int64 orders = 9;
+  int64 random_seed = 10;
+}
+
+message CancelMergeEventOrderRequest {
+  int64 event_id = 1;
+  string merge_event_definition_id = 2;
+  string order_id = 3;
+}
+
+message CompleteMergeEventOrderRequest {
+  int64 event_id = 1;
+  string merge_event_definition_id = 2;
+  string order_id = 3;
+}
+
+message SkipMergeEventOrderRequest {
+  int64 event_id = 1;
+  string merge_event_definition_id = 2;
+  string order_id = 3;
+}
+
+message MergeEventOrderDTO {
+  string group_id = 1;
+  int32 group_order = 2;
+  string order_id = 3;
+  google.protobuf.Timestamp available_at = 4;
+  ActionComponentDTO complete = 5;
+}

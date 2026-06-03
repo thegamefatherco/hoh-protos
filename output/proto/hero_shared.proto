@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message HeroTaskFilterDTO {
+  string hero_definition_id = 1;
+  string hero_class_definition_id = 2;
+  int32 min_level = 3;
+  int32 min_ascension_level = 4;
+  int32 min_awakening_level = 5;
+  int32 min_ability_level = 6;
+  string unit_rarity_definition_id = 7;
+  string unit_type_definition_id = 8;
+}

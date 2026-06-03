@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+message InfluencerCampaignEventCompletedPush {
+  string event_name = 1;
+}
+
+message InfluencerCampaignEventSentRequest {
+  string event_name = 1;
+}

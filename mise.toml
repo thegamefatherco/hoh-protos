@@ -1,0 +1,14 @@
+[tasks.install]
+run = "poetry install"
+
+[tasks.build]
+run = "poetry build"
+
+[tasks.generate]
+run = "poetry run hoh-protos"
+
+[env]
+_.python.venv = { create = true, path = ".venv" }
+
+[settings]
+python.uv_venv_auto = "source"

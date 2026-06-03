@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+enum TrackingEventScope {
+  TrackingEventScope_USER = 0;
+  TrackingEventScope_SYSTEM = 1;
+}
+
+enum TrackingSnippetType {
+  TrackingSnippetType_REGISTER = 0;
+  TrackingSnippetType_INGAME = 1;
+}
+
+enum GameStatePerformanceBatteryStatusEnum {
+  GameStatePerformanceBatteryStatusEnum_UNKNOWN = 0;
+  GameStatePerformanceBatteryStatusEnum_CHARGING = 1;
+  GameStatePerformanceBatteryStatusEnum_DISCHARGING = 2;
+  GameStatePerformanceBatteryStatusEnum_NOT_CHARGING = 3;
+  GameStatePerformanceBatteryStatusEnum_FULL = 4;
+}
+
+enum TrackIdfaOsOptinActionEnum {
+  TrackIdfaOsOptinActionEnum_ACCEPT = 0;
+  TrackIdfaOsOptinActionEnum_DECLINE = 1;
+  TrackIdfaOsOptinActionEnum_SUPPRESSED = 2;
+  TrackIdfaOsOptinActionEnum_SHOWN = 3;
+}
+
+enum TrackCrmTargetSuppressReasonEnum {
+  TrackCrmTargetSuppressReasonEnum_OS_VERSION_EXCLUSION = 0;
+  TrackCrmTargetSuppressReasonEnum_ALREADY_ACCEPTED = 1;
+  TrackCrmTargetSuppressReasonEnum_SUPPRESSED = 2;
+  TrackCrmTargetSuppressReasonEnum_RESTRICTED = 3;
+}
+
+enum TrackShopErrorRequestTypeEnum {
+  TrackShopErrorRequestTypeEnum_ERROR = 0;
+  TrackShopErrorRequestTypeEnum_WARNING = 1;
+}
+
+enum TrackAppConnectionStatusEnum {
+  LOST = 0;
+  RE_ESTABLISHED = 1;
+}
+
+enum TrackCommunityLinkOpenLinkNameEnum {
+  TrackCommunityLinkOpenLinkNameEnum_FACEBOOK_PAGE = 0;
+  TrackCommunityLinkOpenLinkNameEnum_FACEBOOK_GROUP = 1;
+  TrackCommunityLinkOpenLinkNameEnum_INSTAGRAM = 2;
+  TrackCommunityLinkOpenLinkNameEnum_YOUTUBE = 3;
+  TrackCommunityLinkOpenLinkNameEnum_DISCORD = 4;
+  TrackCommunityLinkOpenLinkNameEnum_SUPPORT_TOOL = 5;
+  TrackCommunityLinkOpenLinkNameEnum_TIK_TOK = 6;
+  TrackCommunityLinkOpenLinkNameEnum_REDDIT = 7;
+}
+
+message TrackingSnippetRequest {
+  TrackingSnippetType type = 1;
+}
+
+message TrackingSnippetResponse {
+  string snippet = 1;
+}
+
+message TrackDeviceIdentifierUpdateRequest {
+  string device_id = 1;
+  string origin = 2;
+}
+
+message TrackLoadingProcessRequest {
+  string loading_step = 1;
+}
+
+message TrackDeviceSystemInfoRequest {
+  string device_model_unity = 1;
+  int64 system_memory_size = 2;
+  int64 processor_frequency = 3;
+  int64 processor_count = 4;
+  string processor_type = 5;
+  int64 graphics_memory_size = 6;
+  string graphics_device_name = 7;
+  string graphics_device_type = 8;
+  string graphics_device_vendor = 9;
+  string graphics_device_version = 10;
+  int64 graphics_shader_level = 11;
+}
+
+message TrackGameStatePerformanceRequest {
+  string state = 1;
+  double fps = 2;
+  int64 total_memory = 3;
+  bool first_state_loading = 4;
+  double battery_level = 5;
+  GameStatePerformanceBatteryStatusEnum battery_status = 6;
+  google.protobuf.Duration loading_time = 7;
+  double frame_time_utilization = 8;
+}
+
+message TrackIdfaOsOptinRequest {
+  TrackIdfaOsOptinActionEnum action = 1;
+}
+
+message TrackCrmTargetSuppressRequest {
+  string target_id = 1;
+  TrackCrmTargetSuppressReasonEnum reason = 2;
+}
+
+message TrackShopErrorRequest {
+  string payment_session_id = 1;
+  string error_code = 2;
+  TrackShopErrorRequestTypeEnum type = 3;
+  string message = 4;
+}
+
+message TrackShopOpenRequest {
+  string payment_session_id = 1;
+  string entry_point = 2;
+  string crm_target_id = 3;
+  string storefront_country = 4;
+}
+
+message TrackShopCancelRequest {
+  string payment_session_id = 1;
+}
+
+message TrackShopCloseRequest {
+  string payment_session_id = 1;
+}
+
+message TrackShopPageOpenRequest {
+  string payment_session_id = 1;
+  bool offer_ids = 2;
+  bool fullscreen = 3;
+  string tab = 4;
+  string subtab = 5;
+}
+
+message TrackCheckoutPreferenceRequest {
+  string source = 1;
+  string selected_preference = 2;
+  string payment_session_id = 3;
+  string previous_preference = 4;
+}
+
+message TrackTutorialStartRequest {
+  string tutorial_type = 1;
+}
+
+message TrackTutorialStepRequest {
+  string tutorial_type = 1;
+  int64 tutorial_step_id = 2;
+  string tutorial_step_name = 3;
+}
+
+message TrackTutorialFinishRequest {
+  string tutorial_type = 1;
+}
+
+message TrackStorySequenceSeenRequest {
+  string story = 1;
+}
+
+message TrackPopupRequest {
+  string name = 1;
+  string action = 2;
+  string element = 3;
+  string city_id = 4;
+}
+
+message TrackAppConnectionRequest {
+  TrackAppConnectionStatusEnum status = 1;
+  google.protobuf.Duration runtime = 2;
+}
+
+message TrackVideoAdsNotAvailableRequest {
+  string ad_type = 1;
+}
+
+message TrackCommunityLinkOpenRequest {
+  TrackCommunityLinkOpenLinkNameEnum link_name = 1;
+}
+
+message TrackPremiumSpendAttemptRequest {
+  string feature_main_type = 1;
+  string feature_sub_type = 2;
+  int64 amount_missing = 3;
+  string additional_information = 4;
+}
+
+message TrackQuestGotoClickRequest {
+  string quest_type = 1;
+  string quest_id = 2;
+}
+
+message TrackBattlePausedRequest {
+  string battle_id = 1;
+  string feature_type = 2;
+}
+
+message TrackBattleResumedRequest {
+  string battle_id = 1;
+  string feature_type = 2;
+}
+
+message TrackAppLifecycleRequest {
+  enum LifecycleEnumDTO {
+    TO_BACKGROUND = 0;
+    TO_FOREGROUND = 1;
+  }
+  LifecycleEnumDTO lifecycle = 1;
+  google.protobuf.Duration runtime = 2;
+  int64 memory_used = 3;
+}
+
+message TrackCmpLayerCloseRequest {
+  string tcf_string = 1;
+}
+
+message TrackCityUnlockProductionSlotClickRequest {
+  int64 building_id = 1;
+}
+
+message TrackEventBoostClickRequest {
+  string event_definition_id = 1;
+}
+
+message TrackPreRegistrationRewardCollectRequest {
+  google.protobuf.Timestamp pre_registration_date = 1;
+}
+
+message TrackSwitchAccountRequest {
+  string old_market = 1;
+  int64 old_player_id = 2;
+}
+
+message TrackErrorPopupRequest {
+  enum ErrorPopupTypeEnum {
+    ERROR = 0;
+    SERVICE_UNAVAILABLE = 1;
+    SESSION_EXPIRED = 2;
+    CREDENTIALS_INVALID = 3;
+    AUTHENTICATION_FAILED = 4;
+  }
+  ErrorPopupTypeEnum type = 1;
+  string error_message = 2;
+  string trace_id = 3;
+}
+
+message TrackShopRevenueRequest {
+  enum ShopRevenueType {
+    CONSUME = 0;
+    PUSH = 1;
+  }
+  string payment_session_id = 1;
+  string transaction_id = 2;
+  ShopRevenueType type = 3;
+  string currency = 4;
+  int64 currency_amount = 5;
+  string payment_provider_tag = 6;
+}
+
+message TrackGameCheckpointRequest {
+  string checkpoint = 1;
+  string info = 2;
+}
+
+message TrackGenerateHeroImageRequest {
+  string hero_id = 1;
+}
+
+message TrackCrmResurfacingOfferOpenedRequest {
+  int64 crm_resurfacing_id = 1;
+  string device_size = 2;
+}
+
+message TrackSingularAttributionDataRequest {
+  string campaign_id = 1;
+  string campaign_name = 2;
+  int64 campaign_id_old_int = 3;
+}

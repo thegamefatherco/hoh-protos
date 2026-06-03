@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "ingame_event.proto";
+
+message RewardLaneEventCollectRequest {
+  int64 event_id = 2;
+  string reward_lane_event_component_id = 3;
+  int32 progress = 4;
+}
+
+message RewardLaneEventCollectAllRequest {
+  int64 event_id = 1;
+  string reward_lane_event_component_id = 2;
+}
+
+message RewardLaneEventStateDTO {
+  int32 collected_rewards = 1;
+  int32 progress_at_event_end = 2;
+}
+
+message RewardLaneEventComponentDTO {
+  string definition_id = 1;
+  string progress_resource_definition_id = 2;
+  InGameEventStateDTO rewards = 3;
+  InGameEventStateDTO minimum_state_to_collect = 4;
+  string primary_reward_resource_definition_id = 5;
+}

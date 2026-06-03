@@ -1,0 +1,412 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "init.proto";
+import "resource.proto";
+import "technology_state.proto";
+import "uuid.proto";
+
+enum AllianceProcessType {
+  AllianceProcessType_PRODUCTION = 0;
+  AllianceProcessType_QUARTER_UPGRADE = 1;
+  AllianceProcessType_INCIDENT = 2;
+}
+
+message AllianceCityDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  google.protobuf.Timestamp version = 3;
+  int64 alliance_id = 4;
+}
+
+message AllianceQuarterUpgradePayRequest {
+  int64 alliance_quarter_id = 1;
+  string crate_id = 2;
+  PartialPaymentDTO partial_payment = 3;
+}
+
+message AllianceQuarterUpgradeSkipRequest {
+  int64 alliance_quarter_id = 1;
+  int32 slot_index = 2;
+  PartialPaymentDTO invested_premium = 3;
+}
+
+message AllianceQuarterUpgradeUnlockSlotRequest {
+  int64 alliance_quarter_id = 1;
+  PartialPaymentDTO invested_premium = 2;
+}
+
+message AllianceQuarterUpgradeJoinRequest {
+  int64 alliance_quarter_id = 1;
+  int32 slot_index = 2;
+}
+
+message AllianceQuarterUpgradeFinishRequest {
+  int64 alliance_quarter_id = 1;
+}
+
+message AllianceQuarterDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  google.protobuf.Timestamp version = 3;
+  int64 alliance_city_id = 4;
+  int32 level = 5;
+  UUID frontend_id = 8;
+  int32 upgrade_premium_slots = 9;
+  int64 upgrade_cost_id = 10;
+  int64 upgrade_process_id = 11;
+}
+
+message AllianceQuarterUpgradeSlotPurchasedChatNotificationDTO {
+  int32 player_id = 1;
+  string alliance_quarter_definition_id = 2;
+}
+
+message AllianceTechnologyPayRequest {
+  string technology_definition_id = 1;
+  string crate_id = 2;
+  PartialPaymentDTO partial_payment = 3;
+}
+
+message AllianceTechnologyDTO {
+  string definition_id = 1;
+  google.protobuf.Timestamp version = 2;
+  int64 alliance_id = 3;
+  TechnologyState state = 4;
+  int64 unlock_cost_id = 6;
+}
+
+message UnlockAllianceTechnologyRewardDTO {
+  string id = 1;
+  bool hidden = 2;
+  string technology_definition_id = 3;
+}
+
+message AllianceProductionJoinRequest {
+  int64 production_id = 1;
+  int32 slot_index = 2;
+}
+
+message AllianceProductionCollectRequest {
+  int64 production_id = 1;
+}
+
+message AllianceProductionSkipRequest {
+  int64 production_id = 1;
+  int32 slot_index = 2;
+  PartialPaymentDTO partial_payment = 3;
+}
+
+message AllianceProductionUnlockSlotRequest {
+  int64 production_id = 1;
+  PartialPaymentDTO invested_premium = 2;
+}
+
+message AllianceProductionDTO {
+  int64 id = 1;
+  string definition_id = 2;
+  google.protobuf.Timestamp version = 3;
+  int64 alliance_quarter_id = 4;
+  int32 premium_slots = 6;
+  int64 process_id = 7;
+}
+
+message AllianceProductionSlotPurchasedChatNotificationDTO {
+  int32 player_id = 1;
+  string production_definition_id = 2;
+}
+
+message CrateCostDTO {
+  string definition_id = 1;
+  google.protobuf.Timestamp crates = 2;
+  google.protobuf.Timestamp version = 3;
+  int64 id = 4;
+}
+
+message CrateCostCrateDTO {
+  string id = 1;
+}
+
+message CrateCostDefinitionDTO {
+  string id = 1;
+}
+
+message CreateCostCrateComponentDTO {
+  string id = 1;
+  int32 number_of_crates = 2;
+  google.protobuf.Any cost_per_crate = 3;
+}
+
+message AllianceProcessDTO {
+  string definition_id = 1;
+  int32 produced_so_far_by_player_id = 2;
+  int32 available_slots = 3;
+  bool active_slots = 4;
+  bool finished = 5;
+  google.protobuf.Timestamp version = 6;
+  int64 id = 7;
+}
+
+message AllianceProcessSlotDTO {
+  int32 player_id = 1;
+  double produced_per_second = 2;
+  google.protobuf.Timestamp start = 3;
+  google.protobuf.Timestamp end = 4;
+  google.protobuf.Timestamp last_reset = 5;
+  bool skipped = 6;
+}
+
+message AllianceCityPremiumSlotComponentDTO {
+  string id = 1;
+  int32 order = 2;
+  AllianceProcessType type = 3;
+  ActionComponentDTO start = 4;
+}
+
+message AllianceCityDefinitionDTO {
+  string id = 1;
+  int32 components = 2;
+  int32 quarter_upgrade_base_slots = 10;
+  int32 quarter_upgrade_max_slots = 11;
+}
+
+message AllianceQuarterDefinitionDTO {
+  string id = 1;
+}
+
+message AllianceQuarterLevelUpDefinitionDTO {
+  string id = 1;
+  google.protobuf.Any dynamic_data = 2;
+  int32 components = 3;
+  int32 max_level = 4;
+}
+
+message AllianceQuarterUpgradeSlotComponentDTO {
+  string id = 1;
+  string dynamic_float_definition_id = 2;
+}
+
+message AllianceMembersIncreaseComponentDTO {
+  string id = 1;
+  string dynamic_float_definition_id = 2;
+}
+
+message AllianceQuarterUpgradeDataDTO {
+  string requirements = 1;
+  string crate_cost_definition_id = 2;
+  string process_definition_id = 3;
+}
+
+message UnlockAllianceQuarterRewardDTO {
+  string id = 1;
+  bool hidden = 2;
+  string requirements = 3;
+  string alliance_city_definition_id = 4;
+  string alliance_quarter_definition_id = 5;
+}
+
+message UnlockAllianceQuarterUpgradeRewardDTO {
+  string id = 1;
+  bool hidden = 2;
+  string quarter_definition_id = 3;
+  int32 level = 4;
+}
+
+message AllianceCityProductionDefinitionDTO {
+  string id = 1;
+  int32 required_quarter_level = 2;
+  string alliance_process_definition_id = 4;
+  string produced_resource_definition_id = 5;
+  string dynamic_base_slot_id = 6;
+  string dynamic_max_slot_id = 7;
+}
+
+message AllianceProcessDefinitionDTO {
+  string id = 1;
+  google.protobuf.Duration duration = 2;
+  double base_produced_per_second = 3;
+  int32 extra_production_rate_per_second_by_active_slots = 4;
+  int32 total_amount_producable = 5;
+  string dynamic_base_produced_per_second = 6;
+  double skip_cost_per_minute = 7;
+}
+
+message AllianceTechnologyDefinitionDTO {
+  string id = 1;
+  string name = 2;
+  int32 column = 3;
+  int32 order = 4;
+  string crate_cost_definition_id = 6;
+  ActionComponentDTO start = 7;
+  ActionComponentDTO finish = 8;
+}
+
+message AllianceTechnologyRequirementDTO {
+  string technology_id = 1;
+}
+
+message PlayerPowerDefinitionDTO {
+  string id = 1;
+  AllianceProcessType type = 2;
+  google.protobuf.Any power = 3;
+}
+
+message PlayerPowerModifierDTO {
+  double modifier = 1;
+}
+
+message AllianceQuarterRequirementDTO {
+  string alliance_quarter_definition_id = 1;
+  int32 min_level = 2;
+}
+
+message AllianceQuarterPlayerProductionDTO {
+  int64 alliance_id = 1;
+  int64 quarter_entity_id = 2;
+}
+
+message AllianceQuarterProductionLocationDataDTO {
+  int64 quarter_entity_id = 1;
+}
+
+message AllianceCityIncidentDTO {
+  int64 entity_id = 1;
+  string definition_id = 2;
+  google.protobuf.Timestamp version = 3;
+  int64 alliance_id = 4;
+  int64 alliance_quarter_id = 5;
+  google.protobuf.Timestamp valid_from = 6;
+  google.protobuf.Timestamp valid_until = 7;
+  int32 times_duration_was_extended = 8;
+  google.protobuf.Timestamp started_at = 9;
+  int32 collected_by = 11;
+  int64 solve_process_id = 12;
+  int32 spot = 13;
+  int64 spawn_id = 14;
+}
+
+message AllianceCityIncidentRemovedPush {
+  int64 incident_id = 1;
+}
+
+message AllianceCityIncidentStartRequest {
+  int64 incident_id = 1;
+}
+
+message AllianceCityIncidentJoinRequest {
+  int64 incident_id = 1;
+  int32 slot_index = 2;
+}
+
+message AllianceCityIncidentExtendDurationRequest {
+  int64 incident_id = 1;
+  PartialPaymentDTO invested_premium = 2;
+}
+
+message AllianceCityIncidentSkipRequest {
+  int64 incident_id = 1;
+  int32 slot_index = 2;
+  PartialPaymentDTO invested_premium = 3;
+}
+
+message AllianceCityIncidentCollectRequest {
+  int64 incident_id = 1;
+  bool upgrade_reward = 2;
+  PartialPaymentDTO invested_premium = 3;
+}
+
+message AllianceCityIncidentUnlockSlotRequest {
+  int64 incident_id = 1;
+  PartialPaymentDTO invested_premium = 2;
+}
+
+message AllianceCityIncidentDefinitionDTO {
+  string id = 1;
+  string incident_component_definition_id = 3;
+  string solve_process_definition_id = 4;
+  google.protobuf.Duration duration = 5;
+  google.protobuf.Duration extend_duration_by = 6;
+  ResourceDTO extend_duration_base_price = 7;
+  double extend_duration_repeated_price_factor = 8;
+  double reward_definition_id_by_required_progress = 9;
+  double cost_per_missing_progress = 10;
+  string resource_missing_progress = 11;
+  string quality_level_definition_id = 12;
+}
+
+message AllianceCityIncidentQualityDefinitionDTO {
+  string id = 1;
+  int32 quality_level = 2;
+}
+
+message AllianceCityIncidentSpawnDataDTO {
+  int64 id = 1;
+  int64 alliance_quarter_id = 2;
+  google.protobuf.Timestamp version = 3;
+}
+
+message AllianceCityIncidentComponentDTO {
+  string id = 1;
+  google.protobuf.Duration components = 3;
+  google.protobuf.Duration despawn_after = 4;
+}
+
+message AllianceCityIncidentComponentLevelSpecificDataDTO {
+  int32 max_incident_quality = 1;
+  int32 spawns_per_day = 2;
+  int32 base_solve_slots = 3;
+  int32 max_solve_slots = 4;
+}
+
+message AllianceCityIncidentSpawnedChatNotificationDTO {
+  int64 incident_id = 1;
+  string incident_definition_id = 2;
+  int32 spot = 3;
+}
+
+message AllianceCityIncidentStartedChatNotificationDTO {
+  int64 incident_id = 1;
+  string incident_definition_id = 2;
+  int32 spot = 3;
+  int32 started_by_player_id = 4;
+}
+
+message AllianceCityIncidentSlotPurchasedChatNotificationDTO {
+  int32 player_id = 1;
+  int64 spawn_data_id = 2;
+  string quality_level_definition_id = 3;
+}
+
+message AllianceCityIncidentRunningOutNotificationDTO {
+  int64 incident_id = 1;
+  string incident_definition_id = 2;
+  int32 spot = 3;
+}
+
+message AllianceCityContributionHistoryDTO {
+  int64 id = 1;
+  int64 alliance_id = 2;
+  google.protobuf.Any target = 3;
+  google.protobuf.Timestamp last_update = 4;
+  string crate_cost_definition_id = 5;
+}
+
+message AllianceCityIncidentContributionTargetDTO {
+  int64 spawn_data_id = 1;
+  int64 incident_id = 2;
+  string incident_definition_id = 3;
+}
+
+message AllianceQuarterUpgradeContributionTargetDTO {
+  int64 quarter_id = 1;
+  string quarter_definition_id = 2;
+  int32 target_level = 3;
+}
+
+message AllianceTechnologyContributionTargetDTO {
+  string technology_definition_id = 1;
+}

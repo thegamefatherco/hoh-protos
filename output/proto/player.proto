@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package InnoGames.Generated.Protobuf;
+
+import "alliance_banner.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "init.proto";
+
+enum IndicatorContext {
+  IndicatorContext_NONE = 0;
+  IndicatorContext_QUESTS = 1;
+  IndicatorContext_CAMPAIGN = 2;
+  IndicatorContext_BUILDING = 3;
+  IndicatorContext_INVENTORY = 4;
+  IndicatorContext_WONDERS = 5;
+  IndicatorContext_INVENTORY_BUILDING = 6;
+  IndicatorContext_INVENTORY_CUSTOMIZATION = 7;
+  IndicatorContext_TREASURE_HUNT = 8;
+  IndicatorContext_SUPPORT = 9;
+  IndicatorContext_INVENTORY_ITEM = 10;
+  IndicatorContext_EVENT_VFX = 11;
+  IndicatorContext_ANNOUNCEMENT = 13;
+  IndicatorContext_INVENTORY_COMMANDER = 14;
+  IndicatorContext_WONDER_UNLOCKED = 15;
+  IndicatorContext_WONDER_COLLECTION_UNLOCKED = 16;
+  IndicatorContext_SEASONPASS_TASKS = 17;
+  IndicatorContext_SEASONPASS_REWARDS = 18;
+  IndicatorContext_EVENTPASS = 19;
+  IndicatorContext_PVP = 20;
+  IndicatorContext_RIFT = 21;
+}
+
+enum PlayerNameError {
+  PlayerNameError_TEMPORARY_UNAVAILABLE = 0;
+  PlayerNameError_TOO_SHORT = 1;
+  PlayerNameError_TOO_LONG = 2;
+  PlayerNameError_WHITESPACE = 3;
+  PlayerNameError_NOT_ALLOWED_CHARS = 4;
+  PlayerNameError_BLACKLISTED = 5;
+}
+
+message PlayerDTO {
+  int64 id = 1;
+  string username = 2;
+  string display_name = 3;
+  PlayerSpecificDTO unlocked_cities = 4;
+  PlayerSpecificDTO player_specific = 5;
+  string current_age = 6;
+  int64 random_seed = 8;
+  google.protobuf.Timestamp finished_tutorials = 9;
+  google.protobuf.Timestamp registration_date = 10;
+  google.protobuf.Timestamp last_login = 11;
+  int32 portrait_id = 12;
+  bool receives_alliance_invites = 13;
+  bool is_payer = 14;
+  bool finished_stories = 15;
+  bool public1_on1_allowed = 16;
+}
+
+message PlayerInfoDTO {
+  int64 id = 1;
+  string name = 2;
+  int32 portrait_id = 3;
+  string age = 4;
+  string locale = 5;
+}
+
+message PlayerDetailsDTO {
+  int32 id = 1;
+  string name = 2;
+  string age = 3;
+  int32 portrait_id = 4;
+  int64 alliance_id = 5;
+  string alliance_name = 6;
+  string locale = 9;
+  AllianceBannerDTO alliance_banner = 10;
+  bool public1_on1_allowed = 11;
+}
+
+message PlayerSpecificDTO {
+}
+
+message PlayerInitDefinitionDTO {
+  string id = 1;
+}
+
+message StatusIndicatorsDTO {
+}
+
+message StatusIndicatorDTO {
+  IndicatorContext context = 1;
+  int32 updates = 2;
+  google.protobuf.Timestamp last_seen = 3;
+}
+
+message StatusIndicatorMarkAsSeenRequest {
+  IndicatorContext context = 1;
+}
+
+message ChangeDisplayNameRequest {
+  string id = 1;
+  string new_name = 2;
+}
+
+message ChangeDisplayNameDTO {
+  google.protobuf.Timestamp last_change = 1;
+  ActionComponentDTO change_cost = 2;
+  google.protobuf.Duration free_change_cooldown = 3;
+}
+
+message ChangePortraitIdRequest {
+  string id = 1;
+  int32 portrait_id = 2;
+}
+
+message ChangeLocaleRequest {
+  string id = 1;
+  string locale = 2;
+}
+
+message UpdateIdfvRequest {
+  string idfv = 1;
+}
+
+message StatusIndicatorTraitDTO {
+  IndicatorContext indicator_context = 1;
+}
+
+message ChangeDisplayNameResponse {
+  bool is_valid = 1;
+}
+
+message RecoverPlayerDTO {
+  string token = 1;
+}
+
+message ResendEmailConfirmationMailResponse {
+  bool success = 1;
+}
+
+message ChangeReceiveInviteRequest {
+  bool enabled = 1;
+}
+
+message ChangeChatPreferencesRequest {
+  bool public1_on1_allowed = 1;
+}
+
+message TutorialComponentDTO {
+  string tutorial = 1;
+}
+
+message PlayerProfileRequest {
+  int32 player_id = 1;
+}
+
+message PlayerProfileResponse {
+  int32 player_id = 1;
+  PlayerDetailsDTO details = 2;
+  int32 rank = 3;
+  int64 total_power = 4;
+  string hero_showcase = 5;
+  string pvp_tier = 6;
+  int32 ath_difficulty = 7;
+  bool public1_on1_allowed = 8;
+  string pvp_elite_tier = 9;
+  bool private_chat_feature_unlocked = 10;
+}
+
+message SendSSOEmailRequest {
+  string email = 1;
+  bool marketing_tracking = 2;
+}
+
+message SendSSOEmailResponse {
+  bool has_error = 1;
+  string error_code = 2;
+}
