@@ -30,6 +30,9 @@ WELL_KNOWN: dict[str, str] = {
     "Duration": "google.protobuf.Duration",
     "Timestamp": "google.protobuf.Timestamp",
     "Any": "google.protobuf.Any",
+    "Struct": "google.protobuf.Struct",
+    "Value": "google.protobuf.Value",
+    "ListValue": "google.protobuf.ListValue",
 }
 
 _WELL_KNOWN_PREFIX = "Google.Protobuf.WellKnownTypes."
@@ -95,6 +98,7 @@ class FieldDef:
     label: int
     type: int
     type_name: str = ""
+    proto3_optional: bool = False
     oneof_index: int | None = None
     map_key_type: int | None = None
     map_key_type_name: str = ""
@@ -124,6 +128,10 @@ def camel_to_snake(name: str) -> str:
     s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
     s2 = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1)
     return s2.replace("-", "_").lower()
+
+
+def snake_to_pascal(name: str) -> str:
+    return "".join(part.capitalize() for part in name.split("_"))
 
 
 def reflection_to_proto_name(reflection_class: str) -> str:
@@ -270,8 +278,19 @@ def _emit_missing_well_known_warning() -> list[str]:
     return missing
 
 
+def parse_csharp_nested_name(name: str) -> tuple[list[str], str]:
+    """Split Foo.Types.Bar.Types.Baz into parent chain [Foo, Bar] and leaf Baz."""
+    if ".Types." not in name:
+        return [], name
+    parts = name.split(".Types.")
+    return parts[:-1], parts[-1]
+
+
 def csharp_type_to_proto(type_name: str) -> tuple[int, str, str]:
     type_name = type_name.strip()
+    if type_name.startswith("Nullable<") and type_name.endswith(">"):
+        inner = type_name[len("Nullable<") : -1].strip()
+        return csharp_type_to_proto(inner)
     if type_name.startswith("RepeatedField<"):
         inner = type_name[len("RepeatedField<") : -1]
         t, tn, dep = csharp_type_to_proto(inner)
@@ -306,6 +325,12 @@ def csharp_type_to_proto(type_name: str) -> tuple[int, str, str]:
     return descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE, type_name, ""
 
 
+def _qualify(package: str, *parts: str) -> str:
+    return "." + ".".join(
+        p for p in ((*([package] if package else []), *parts)) if p
+    )
+
+
 def resolve_field_type_name(pf: ProtoFile, md: MessageDef, type_name: str) -> str:
     if not type_name:
         return ""
@@ -315,8 +340,8 @@ def resolve_field_type_name(pf: ProtoFile, md: MessageDef, type_name: str) -> st
         m.name for m in md.nested_messages
     }
     if type_name in nested_names:
-        return f".{pf.package}.{md.name}.{type_name}"
-    return f".{pf.package}.{type_name}"
+        return _qualify(pf.package, md.name, type_name)
+    return _qualify(pf.package, type_name)
 
 
 def parse_message_block(name: str, block: str) -> MessageDef | None:
@@ -336,15 +361,22 @@ def parse_message_block(name: str, block: str) -> MessageDef | None:
     for m in re.finditer(r"(\w+)OneofCase (\w+);", block):
         oneof_names.append(m.group(1))
 
+    _CS_TYPE = r"(?:MapField|RepeatedField|Nullable)<[^>]+>|[\w<>,\.]+"
     for number, field_name in sorted(field_numbers.items()):
         pat = (
             rf"public const int {re.escape(field_name)}FieldNumber = {number};"
-            r"[\s\S]{0,400}?private ([\w<>,\.]+) (\w+)_;"
+            rf"[\s\S]{{0,400}}?private (?:readonly )?({_CS_TYPE}) (\w+)_;"
         )
         m = re.search(pat, block)
         if not m:
             continue
+        if camel_to_snake(m.group(2)) != camel_to_snake(field_name):
+            continue
         cs_type = m.group(1)
+        proto3_optional = False
+        if cs_type.startswith("Nullable<") and cs_type.endswith(">"):
+            proto3_optional = True
+            cs_type = cs_type[len("Nullable<") : -1].strip()
         label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
         map_key_type = map_key_type_name = map_value_type = map_value_type_name = None
         if cs_type.startswith("RepeatedField<"):
@@ -373,6 +405,7 @@ def parse_message_block(name: str, block: str) -> MessageDef | None:
                 map_key_type_name=map_key_type_name or "",
                 map_value_type=map_value_type,
                 map_value_type_name=map_value_type_name or "",
+                proto3_optional=proto3_optional,
             )
         )
     return msg
@@ -397,7 +430,7 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
     protos: dict[str, ProtoFile] = {}
     for reflection_name, section in split_dump_sections(text):
         proto_name = reflection_to_proto_name(reflection_name)
-        package = "InnoGames.Generated.Protobuf"
+        package = ""
         pf = ProtoFile(name=proto_name, package=package)
         class_pattern = re.compile(
             r"public (?:sealed )?class ([\w\.]+)(?: :|\s*\{)",
@@ -425,15 +458,45 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
             pf.messages.append(msg)
             return msg
 
-        deferred: list[tuple[str, str, str, str]] = []
+        def ensure_nested_message(pf: ProtoFile, parent_names: list[str]) -> MessageDef:
+            if not parent_names:
+                raise ValueError("empty nested parent path")
+            parent = ensure_message(pf, parent_names[0])
+            for nested_name in parent_names[1:]:
+                child = next(
+                    (m for m in parent.nested_messages if m.name == nested_name),
+                    None,
+                )
+                if child is None:
+                    child = MessageDef(name=nested_name)
+                    parent.nested_messages.append(child)
+                parent = child
+            return parent
+
+        def merge_nested_message(parent: MessageDef, incoming: MessageDef) -> None:
+            existing = next(
+                (m for m in parent.nested_messages if m.name == incoming.name),
+                None,
+            )
+            if existing is None:
+                parent.nested_messages.append(incoming)
+                return
+            if incoming.fields and not existing.fields:
+                existing.fields = incoming.fields
+            for ed in incoming.nested_enums:
+                if not any(e.name == ed.name for e in existing.nested_enums):
+                    existing.nested_enums.append(ed)
+            for nm in incoming.nested_messages:
+                merge_nested_message(existing, nm)
+
+        deferred: list[tuple[str, str, str]] = []
         for i, (kind, pos, name) in enumerate(indices):
             if "<>c" in name or name.endswith(".Types"):
                 continue
             end = indices[i + 1][1] if i + 1 < len(indices) else len(section)
             block = section[pos:end]
             if ".Types." in name:
-                parent_name, nested_name = name.split(".Types.", 1)
-                deferred.append((kind, parent_name, nested_name, block))
+                deferred.append((kind, name, block))
                 continue
             if kind == "enum":
                 enum_def = parse_enum_block(name, block)
@@ -448,16 +511,18 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
                     elif not existing:
                         pf.messages.append(msg)
 
-        for kind, parent_name, nested_name, block in deferred:
-            parent = ensure_message(pf, parent_name)
+        for kind, full_name, block in deferred:
+            parent_names, leaf_name = parse_csharp_nested_name(full_name)
+            parent = ensure_nested_message(pf, parent_names)
             if kind == "enum":
-                enum_def = parse_enum_block(nested_name, block)
+                enum_def = parse_enum_block(leaf_name, block)
                 if enum_def:
                     parent.nested_enums.append(enum_def)
             else:
-                msg = parse_message_block(nested_name, block)
+                msg = parse_message_block(leaf_name, block)
                 if msg:
-                    parent.nested_messages.append(msg)
+                    msg.name = leaf_name
+                    merge_nested_message(parent, msg)
         if pf.messages or pf.enums:
             protos[proto_name] = pf
     return protos
@@ -470,6 +535,8 @@ def add_deps_from_fields(pf: ProtoFile, type_to_file: dict[str, str]) -> None:
         "google.protobuf.Any": "google/protobuf/any.proto",
         "google.protobuf.Empty": "google/protobuf/empty.proto",
         "google.protobuf.Struct": "google/protobuf/struct.proto",
+        "google.protobuf.Value": "google/protobuf/struct.proto",
+        "google.protobuf.ListValue": "google/protobuf/struct.proto",
     }
 
     def note_type(type_name: str) -> None:
@@ -532,16 +599,19 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
             ev.number = val.number
 
     def add_message(
-        md: MessageDef, parent: descriptor_pb2.DescriptorProto | None = None
+        md: MessageDef,
+        parent: descriptor_pb2.DescriptorProto | None = None,
+        ancestor_path: tuple[str, ...] = (),
     ) -> None:
         target = (
             parent.nested_type.add() if parent is not None else fd.message_type.add()
         )
         target.name = md.name
+        message_path = (*ancestor_path, md.name)
         for ed in md.nested_enums:
             add_enum(ed, target)
         for nested in md.nested_messages:
-            add_message(nested, target)
+            add_message(nested, target, message_path)
         for fld in md.fields:
             f = target.field.add()
             f.name = fld.name
@@ -561,10 +631,11 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
                 ):
                     f.type = descriptor_pb2.FieldDescriptorProto.TYPE_ENUM
             if fld.type_name.startswith("MapEntry"):
+                entry_name = f"{snake_to_pascal(fld.name)}Entry"
                 f.type = descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE
-                f.type_name = f".{pf.package}.{md.name}.{fld.name.capitalize()}Entry"
+                f.type_name = _qualify(pf.package, *message_path, entry_name)
                 entry = target.nested_type.add()
-                entry.name = f"{fld.name.capitalize()}Entry"
+                entry.name = entry_name
                 entry.options.map_entry = True
                 k = entry.field.add()
                 k.name = "key"
@@ -574,7 +645,9 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
                     fld.map_key_type or descriptor_pb2.FieldDescriptorProto.TYPE_STRING
                 )
                 if fld.map_key_type_name:
-                    k.type_name = f".{pf.package}.{fld.map_key_type_name}"
+                    k.type_name = resolve_field_type_name(
+                        pf, md, fld.map_key_type_name
+                    )
                 v = entry.field.add()
                 v.name = "value"
                 v.number = 2
@@ -584,12 +657,16 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
                     or descriptor_pb2.FieldDescriptorProto.TYPE_STRING
                 )
                 if fld.map_value_type_name:
-                    v.type_name = f".{pf.package}.{fld.map_value_type_name}"
+                    v.type_name = resolve_field_type_name(
+                        pf, md, fld.map_value_type_name
+                    )
             else:
                 f.type = fld.type
                 tn = resolve_field_type_name(pf, md, fld.type_name)
                 if tn:
                     f.type_name = tn
+            if fld.proto3_optional:
+                f.proto3_optional = True
 
     for ed in pf.enums:
         add_enum(ed)

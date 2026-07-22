@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package InnoGames.Generated.Protobuf;
-
-message UUID {
-  bytes bytes = 1;
-}

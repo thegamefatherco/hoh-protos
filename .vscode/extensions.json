@@ -8,6 +8,11 @@
     "tamasfe.even-better-toml",
     "ms-dotnettools.vscode-dotnet-runtime",
     "peterj.proto",
-    "icsharpcode.ilspy-vscode"
+    "icsharpcode.ilspy-vscode",
+    "github.vscode-github-actions",
+    "github.codespaces",
+    "sanjulaganepola.github-local-actions",
+    "github.vscode-pull-request-github",
+    "github.remotehub"
   ]
 }

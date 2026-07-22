@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-package InnoGames.Generated.Protobuf;
-
-enum TechnologyState {
-  TechnologyState_LOCKED = 0;
-  TechnologyState_UNLOCKING = 1;
-  TechnologyState_UNLOCKED = 2;
-}

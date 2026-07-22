@@ -1,11 +1,19 @@
-[tasks.install]
-run = "poetry install"
-
-[tasks.build]
-run = "poetry build"
+[tasks.setup]
+run = "hoh-protos setup"
 
 [tasks.generate]
-run = "poetry run hoh-protos"
+usage = '''
+arg "<xapk_path>" help="Path to the XAPK file" default="./fixtures/game.xapk"
+arg "<output_dir>" help="Output directory" default="./output"
+'''
+run = "hoh-protos run -o {{usage.output_dir}} {{usage.xapk_path}}"
+
+[tasks.lint]
+usage = '''
+arg "<output_dir>" help="Output directory" default="./output/proto"
+arg "<report_file>" help="Report file" default="./protolint_report.json"
+'''
+run = "protolint lint -output_file={{usage.report_file}} -reporter=json {{usage.output_dir}}"
 
 [env]
 _.python.venv = { create = true, path = ".venv" }

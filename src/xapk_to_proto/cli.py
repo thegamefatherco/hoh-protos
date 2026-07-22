@@ -7,10 +7,31 @@ import subprocess
 import sys
 from pathlib import Path
 
-from xapk_to_proto import deps, emit, extract
+from xapk_to_proto import (
+    definitions,
+    deps,
+    emit,
+    extract,
+    gamedesign,
+    gamedesign_constants,
+    loca,
+    wirefix,
+)
 from xapk_to_proto.pipeline import run as pipeline_run
 
-_SUBCOMMANDS = frozenset({"setup", "extract", "emit", "run"})
+_SUBCOMMANDS = frozenset(
+    {
+        "setup",
+        "extract",
+        "emit",
+        "run",
+        "gamedesign",
+        "gamedesign-constants",
+        "definitions",
+        "loca",
+        "wirefix",
+    }
+)
 
 
 def _normalize_argv(argv: list[str]) -> list[str]:
@@ -109,6 +130,259 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         help="Do not delete work directory on success",
     )
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument(
+        "--gamedesign",
+        action="store_true",
+        help="Discover and export hero gamedesign JSON after schema extraction",
+    )
+    p.add_argument(
+        "--gamedesign-input",
+        type=Path,
+        default=None,
+        help="Decode hero gamedesign from a captured GameDesignResponse blob",
+    )
+    p.add_argument(
+        "--gamedesign-out",
+        type=Path,
+        default=None,
+        help="Gamedesign output directory (default: {output}/gamedesign)",
+    )
+    p.add_argument(
+        "--wire-fix-input",
+        type=Path,
+        default=None,
+        help=(
+            "GameDesignResponse blob for wire-type correction before .proto emit. "
+            "Defaults to --gamedesign-input when set."
+        ),
+    )
+    p.add_argument(
+        "--definitions-input",
+        type=Path,
+        action="append",
+        default=None,
+        metavar="BLOB",
+        help=(
+            "Decode a captured WrappedResponse/GameDesignResponse blob "
+            "(e.g. startup.raw, wakeup.raw, gamedesign) into per-type JSON. "
+            "Repeatable; one output dir per source is created."
+        ),
+    )
+    p.add_argument(
+        "--definitions-out",
+        type=Path,
+        default=None,
+        help="Definitions output directory (default: {output}/definitions)",
+    )
+    p.add_argument(
+        "--gamedesign-constants",
+        action="store_true",
+        help=(
+            "Emit TypeScript string enums from GameDesign *Constants classes "
+            "in dump.cs"
+        ),
+    )
+    p.add_argument(
+        "--gamedesign-constants-out",
+        type=Path,
+        default=None,
+        help=(
+            "GameDesign constants TS output directory "
+            "(default: {output}/gamedesign/constants)"
+        ),
+    )
+    p.add_argument(
+        "--loca-input",
+        type=Path,
+        default=None,
+        help=(
+            "CompressedLocaResponse / LocaResponse blob to decode into "
+            "an English catalog under {output}/loca"
+        ),
+    )
+    p.add_argument(
+        "--loca-out",
+        type=Path,
+        default=None,
+        help="Loca output directory (default: {output}/loca)",
+    )
+
+
+def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "gamedesign",
+        help="Decode hero gamedesign JSON from a GameDesignResponse blob",
+        description="Decode GameDesignResponse protobuf data into hero-related JSON files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos gamedesign --descriptors output/descriptors.pb "
+            "--input gd.bin --out-dir output/gamedesign\n"
+        ),
+    )
+    p.add_argument(
+        "--descriptors",
+        type=Path,
+        required=True,
+        help="descriptors.pb path from schema extraction",
+    )
+    p.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="GameDesignResponse binary blob",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory for manifest.json and heroes/*.json",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_gamedesign_constants_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "gamedesign-constants",
+        help="Emit TypeScript string enums from GameDesign *Constants in dump.cs",
+        description=(
+            "Parse InnoGames.Generated.GameDesign *Constants static classes from "
+            "Il2CppDumper dump.cs and emit TypeScript string enums."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos gamedesign-constants --dump-cs output/il2cpp/dump.cs "
+            "--out-dir output/gamedesign/constants\n"
+        ),
+    )
+    p.add_argument(
+        "--dump-cs",
+        type=Path,
+        required=True,
+        help="Il2CppDumper dump.cs path",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory for *.ts enums and index.ts",
+    )
+
+
+def _add_wirefix_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "wirefix",
+        help="Correct wire types in descriptors.pb using a GameDesignResponse sample",
+        description=(
+            "Detect fields whose declared wire class disagrees with captured payload "
+            "bytes and rewrite types in descriptors.pb before .proto emission."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos wirefix --descriptors output/descriptors.pb "
+            "--input fixtures/un0/gamedesign\n"
+        ),
+    )
+    p.add_argument(
+        "--descriptors",
+        type=Path,
+        required=True,
+        help="descriptors.pb path from schema extraction",
+    )
+    p.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="GameDesignResponse binary blob",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "definitions",
+        help="Decode captured WrappedResponse/GameDesignResponse blobs to JSON",
+        description=(
+            "Decode one or more captured server blobs (startup/wakeup/gamedesign) "
+            "into per-type JSON files, one output subdirectory per source."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos definitions --descriptors output/descriptors.pb "
+            "--out-dir output/definitions "
+            "--input fixtures/startup.raw --input fixtures/wakeup.raw "
+            "--input fixtures/gamedesign\n"
+        ),
+    )
+    p.add_argument(
+        "--descriptors",
+        type=Path,
+        required=True,
+        help="descriptors.pb path from schema extraction",
+    )
+    p.add_argument(
+        "--input",
+        type=Path,
+        action="append",
+        required=True,
+        metavar="BLOB",
+        help="Captured blob to decode (repeatable)",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory; a subdir named after each blob is created",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "loca",
+        help="Decode CompressedLocaResponse into an English key→string catalog",
+        description=(
+            "Decode a captured CompressedLocaResponse (or LocaResponse) blob, "
+            "resolve FNV hashes via LocaKeys in dump.cs, and emit JSON plus "
+            "typed display-name maps (e.g. RarityDisplayName)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos loca --descriptors output/un0/descriptors.pb "
+            "--dump-cs output/un0/il2cpp/dump.cs "
+            "--input fixtures/un0/loca-compressed "
+            "--out-dir output/un0/loca\n"
+        ),
+    )
+    p.add_argument(
+        "--descriptors",
+        type=Path,
+        required=True,
+        help="descriptors.pb path from schema extraction",
+    )
+    p.add_argument(
+        "--dump-cs",
+        type=Path,
+        required=True,
+        help="Il2CppDumper dump.cs path (for LocaKeys)",
+    )
+    p.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="CompressedLocaResponse / LocaResponse blob",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory for catalog JSON and display-name TS maps",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,6 +404,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_extract_parser(sub)
     _add_emit_parser(sub)
     _add_run_parser(sub)
+    _add_gamedesign_parser(sub)
+    _add_gamedesign_constants_parser(sub)
+    _add_wirefix_parser(sub)
+    _add_definitions_parser(sub)
+    _add_loca_parser(sub)
 
     return parser
 
@@ -168,15 +447,112 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "emit":
         try:
-            written = emit.run(args.inp.resolve(), args.out_dir.resolve())
+            emit_result = emit.run(args.inp.resolve(), args.out_dir.resolve())
         except FileNotFoundError as e:
             print(e, file=sys.stderr)
             return 1
-        print(f"wrote {written} .proto files to {args.out_dir.resolve()}")
+        print(
+            f"wrote {emit_result.game_files} game + "
+            f"{emit_result.well_known_files} well-known .proto files to "
+            f"{args.out_dir.resolve()}"
+        )
         return 0
 
     if args.command == "run":
         return pipeline_run(args)
+
+    if args.command == "gamedesign":
+        try:
+            result = gamedesign.run_gamedesign_export(
+                descriptors_pb=args.descriptors.resolve(),
+                out_dir=args.out_dir.resolve(),
+                input_path=args.input.resolve(),
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(f"source: {result.source}")
+        print(f"hero entries: {result.hero_entries} / {result.total_entries}")
+        print(f"wrote {args.out_dir.resolve() / 'manifest.json'}")
+        return 0
+
+    if args.command == "gamedesign-constants":
+        try:
+            result = gamedesign_constants.run_gamedesign_constants_export(
+                dump_cs=args.dump_cs.resolve(),
+                out_dir=args.out_dir.resolve(),
+            )
+        except FileNotFoundError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"wrote {result.enum_count} enums "
+            f"({result.files_written} files) to {result.out_dir}"
+        )
+        return 0
+
+    if args.command == "wirefix":
+        try:
+            report = wirefix.run_wirefix(
+                args.descriptors.resolve(),
+                args.input.resolve(),
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(
+            f"wirefix: {report.fixed_count} correction(s) "
+            f"in {report.iterations} iteration(s)"
+        )
+        print(f"wrote {args.descriptors.resolve()}")
+        return 0
+
+    if args.command == "definitions":
+        out_root = args.out_dir.resolve()
+        for blob in args.input:
+            blob = blob.resolve()
+            dest = out_root / blob.stem
+            try:
+                result = definitions.run_definitions_export(
+                    descriptors_pb=args.descriptors.resolve(),
+                    out_dir=dest,
+                    input_path=blob,
+                    verbose=args.verbose,
+                )
+            except (FileNotFoundError, ValueError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            for warning in result.warnings:
+                print(f"warning [{result.source}]: {warning}", file=sys.stderr)
+            print(f"{result.source}: {result.total_entries} entries -> {dest}")
+        return 0
+
+    if args.command == "loca":
+        try:
+            result = loca.run_loca_export(
+                descriptors_pb=args.descriptors.resolve(),
+                dump_cs=args.dump_cs.resolve(),
+                input_path=args.input.resolve(),
+                out_dir=args.out_dir.resolve(),
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"loca[{result.locale}]: {result.entry_count} entries "
+            f"({result.resolved_keys} resolved, {result.unresolved_hashes} unresolved) "
+            f"-> {result.out_dir}"
+        )
+        return 0
 
     parser.print_help()
     return 0

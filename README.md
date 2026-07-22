@@ -61,14 +61,41 @@ Example layout after a successful run:
 
 ```text
 output/
-├── descriptors.pb      # merged FileDescriptorSet
+├── descriptors.pb          # merged FileDescriptorSet (game schemas only)
+├── descriptors_bundle.pb   # game + Google well-known types (self-contained)
 ├── il2cpp/
-│   └── dump.cs         # Il2CppDumper output
+│   └── dump.cs             # Il2CppDumper output
 └── proto/
-    └── …               # one .proto per descriptor file
+    ├── …                   # one .proto per game descriptor file
+    └── google/
+        └── protobuf/       # emitted well-known types (any, timestamp, …)
 ```
 
 Use `-v` for step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists, and `--keep-work` to retain the scratch directory under `output/.work`.
+
+### Using with Buf (TypeScript / other languages)
+
+Generated `.proto` files use **flat imports** (`import "uuid.proto";`, not a package path prefix). Point Buf’s proto root at the directory that contains those files (for example `output/proto` from this tool, or `protos/` after you copy them).
+
+The emitted `proto/` tree is **self-contained**: Google well-known types ship under `proto/google/protobuf/` (from the bundled `well_known.pb`), so you do not need an external dependency for the imports the game protos actually use.
+
+`descriptors_bundle.pb` merges game descriptors with the same well-known set — use it when a tool needs one binary descriptor set instead of resolving imports.
+
+If you copy only the flat game `.proto` files without the `google/` subtree, you must expose Google’s well-known types another way. Without that, Buf reports `imported file does not exist` for `google/protobuf/*.proto`, and every type from those imports fails with `cannot find X in this scope`.
+
+Minimal `buf.yaml` in the consumer repo (no external Google dep when using the full `proto/` tree):
+
+```yaml
+version: v2
+modules:
+  - path: protos
+```
+
+If you omit the bundled `google/` subtree, add `buf.build/googleapis/googleapis` under `deps` and run `buf dep update`.
+
+Run `buf lint` / `buf generate`. The `protos` path must contain **all** emitted files (109 game + 6 well-known in a typical Heroes of History extract), not a subset.
+
+Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2CPP metadata quirks (`object` placeholders, mis-scoped `Struct`, nested enums, C# `.Types.` segments) so `protoc` and Buf accept the tree.
 
 ## Commands
 
@@ -79,6 +106,86 @@ Use `-v` for step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists
 | `hoh-protos GAME.xapk -o OUT` | Shorthand for `run` |
 | `hoh-protos extract --metadata … --dump-cs … --out descriptors.pb` | Build descriptors only |
 | `hoh-protos emit --in descriptors.pb --out-dir ./proto` | Render `.proto` files from an existing descriptor set |
+| `hoh-protos definitions --descriptors descriptors.pb --input BLOB --out-dir ./definitions` | Decode captured server blobs into per-type JSON |
+| `hoh-protos loca --descriptors … --dump-cs … --input loca-compressed --out-dir ./loca` | Decode English loca catalog + display-name maps |
+| `hoh-protos gamedesign-constants --dump-cs … --out-dir ./gamedesign/constants` | Emit GameDesign string ID enums as TypeScript |
+
+### Decoding captured server blobs
+
+Heroes of History delivers most game data as `WrappedResponse` envelopes
+(`communication.proto`) returned by the `startup`, `wakeup`, and `gamedesign`
+endpoints. These contain thousands of `Any`-wrapped DTOs (player state, configs,
+and `*DefinitionDTO` definitions). Point the tool at one or more captured blobs to
+decode every entry into per-type JSON, one output subdirectory per source:
+
+```bash
+hoh-protos run "/path/to/game.xapk" -o ./output \
+  --definitions-input ./fixtures/startup.raw \
+  --definitions-input ./fixtures/wakeup.raw \
+  --definitions-input ./fixtures/gamedesign
+```
+
+This writes `output/definitions/<source>/<Type>.json` plus a `manifest.json`
+(entry/type counts and any per-type decode warnings) for each blob. The
+`--definitions-input` flag is repeatable, and `--definitions-out` overrides the
+output directory. Use the standalone `hoh-protos definitions` subcommand to
+decode against an existing `descriptors.pb` without re-running the full pipeline.
+
+### English localization (loca)
+
+The game’s main English locale is **`en_DK`** (not `en_US`). Capture the
+`LocaCompressed` response (`CompressedLocaResponse` inside a `WrappedResponse`)
+and decode it with LocaKeys from `dump.cs`:
+
+```bash
+hoh-protos loca \
+  --descriptors output/descriptors.pb \
+  --dump-cs output/il2cpp/dump.cs \
+  --input fixtures/loca-compressed \
+  --out-dir output/loca
+```
+
+Or during the full pipeline: `--loca-input fixtures/loca-compressed`.
+
+Output:
+
+- `en_DK.json` — full key → string[] catalog (e.g. `"Base.Rarities.Common": ["Common"]`)
+- `meta.json` — locale/checksum/version, resolve stats, and `*LocaKey` templates
+- `Rarity.ts` (and similar) — typed display-name maps for flat LocaKeys groups
+- `index.ts` — barrel for the display-name maps
+
+Proto enums map via templates such as `RarityLocaKey = "Base.Rarities.{0}"`:
+`Rarity_COMMON` → `Base.Rarities.Common` → `"Common"`. Gamedesign string IDs like
+`equipment_rarity.2` are a **different** namespace and are not auto-joined to
+`Base.Rarities.*`.
+
+Each object in a per-type JSON array is a **ProtoJSON `Any` payload**: a flat
+`@type` URL plus the message fields. Field names use proto **snake_case**
+(`definition_id`, not `definitionId`). This matches nested `google.protobuf.Any`
+fields inside messages (e.g. `components[]` on hero definitions).
+
+To load entries in TypeScript with [Protobuf-ES](https://protobufes.com/), build a
+schema registry from the same descriptor set used to generate your `_pb.ts` files,
+then parse each array item as `google.protobuf.Any`:
+
+```typescript
+import { createRegistry, fromJson } from "@bufbuild/protobuf";
+import { AnySchema } from "@bufbuild/protobuf/wkt";
+// import generated *Schema exports from your buf/protoc output
+
+const registry = createRegistry(/* ...all message schemas... */);
+
+const raw: unknown[] = JSON.parse(await readFile("HeroDefinitionDTO.json", "utf8"));
+const heroes = raw.map((item) => fromJson(AnySchema, item, { registry }));
+```
+
+The `@type` value (`type.googleapis.com/HeroDefinitionDTO`, etc.) must match the
+fully-qualified message names in your registry. If you already know the message
+type from the filename, you can also use typed import
+(`fromJson(HeroDefinitionDTOSchema, item)`) and ignore the `@type` field.
+
+Note: these blobs are protobuf *wire data*, so they enrich the exported JSON data
+only — they cannot recover `.proto` field names, which still come from the XAPK.
 
 Run `hoh-protos --help` or `hoh-protos <command> --help` for flags and examples.
 

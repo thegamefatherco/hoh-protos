@@ -7,3 +7,5 @@ output/*
 .env
 .env.*
 !.env.example
+
+protolint_report.json
