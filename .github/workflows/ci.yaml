@@ -14,7 +14,9 @@ jobs:
           install: true
           cache: true
           log_level: debug
+      - name: Install Python package
+        run: pip install -e ".[test]"
       - name: Setup dependencies
         run: mise task run setup
-      - name: Generate protos
-        run: mise task run generate
+      - name: Run tests
+        run: pytest
