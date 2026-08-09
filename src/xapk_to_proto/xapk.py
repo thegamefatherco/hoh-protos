@@ -70,9 +70,25 @@ def discover_il2cpp(root: Path) -> tuple[Path, Path]:
     return il2cpp, metadata
 
 
-def validate_metadata(metadata: Path) -> None:
-    magic = struct.unpack_from("<I", metadata.read_bytes(), 0)[0]
+def read_metadata_version(metadata: Path) -> int:
+    """Return the IL2CPP global-metadata version (uint32 after the magic)."""
+    data = metadata.read_bytes()
+    if len(data) < 8:
+        raise ValueError(f"metadata too small ({len(data)} bytes): {metadata}")
+    magic = struct.unpack_from("<I", data, 0)[0]
     if magic != METADATA_MAGIC:
         raise ValueError(
             f"Unsupported or encrypted metadata (magic {magic:#x}, expected {METADATA_MAGIC:#x})"
         )
+    return struct.unpack_from("<I", data, 4)[0]
+
+
+def validate_metadata(metadata: Path) -> int:
+    """Validate magic and return metadata version."""
+    version = read_metadata_version(metadata)
+    if version >= 35:
+        print(
+            f"  metadata version {version} (Unity 6000.x+) — requires a v39-capable Il2CppDumper",
+            flush=True,
+        )
+    return version

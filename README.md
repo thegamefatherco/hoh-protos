@@ -2,13 +2,13 @@
 
 Extract `.proto` schemas from Unity **IL2CPP** Android **XAPK** builds that ship **Google.Protobuf** descriptors (built for [Heroes of History](https://github.com/thegamefatherco/hoh-protos) and similar games).
 
-The `hoh-protos` CLI unpacks the XAPK, runs [Il2CppDumper](https://github.com/Perfare/Il2CppDumper), merges embedded and rebuilt `FileDescriptorProto` data, and writes human-readable `.proto` files plus a `descriptors.pb` blob.
+The `hoh-protos` CLI unpacks the XAPK, runs a [v39-capable Il2CppDumper fork](https://github.com/Windows81/Il2CppDumper) (Unity 6000.x / metadata v35–v39; stock [Perfare](https://github.com/Perfare/Il2CppDumper) does not support these), merges embedded and rebuilt `FileDescriptorProto` data, and writes human-readable `.proto` files plus a `descriptors.pb` blob.
 
 ## Requirements
 
 - **Python** 3.10 or newer
 - A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) — `hoh-protos download-xapk` can fetch one
-- Network access the first time you run `hoh-protos setup` (downloads .NET 8 and Il2CppDumper into your user cache)
+- Network access the first time you run `hoh-protos setup` (downloads .NET 9 and Il2CppDumper into your user cache)
 
 Games that are not IL2CPP or do not use protobuf will fail with a clear error.
 
@@ -50,7 +50,7 @@ Download the bundled .NET runtime and Il2CppDumper (cached under your platform u
 hoh-protos setup
 ```
 
-To refresh cached tools:
+To refresh cached tools (required after upgrading this package when the default dumper changes, e.g. for Unity 6 / metadata v39):
 
 ```bash
 hoh-protos setup --force
@@ -112,7 +112,7 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 
 | Command | Purpose |
 | --- | --- |
-| `hoh-protos setup` | Install .NET 8 + Il2CppDumper into the user cache |
+| `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
 | `hoh-protos download-xapk [VERSION] -o OUT` | Download the game XAPK from APKPure (latest by default) |
 | `hoh-protos download-assets --xapk … -o ./assets` | Download Addressables bundles from the CDN |
 | `hoh-protos unpack-assets --xapk … -o ./unpacked` | Extract images from Addressables bundles + build an asset index |
@@ -370,7 +370,9 @@ python -m xapk_to_proto --help
 | --- | --- |
 | `XAPK_TO_PROTO_DOTNET` | Path to a `dotnet` executable (skips cached runtime) |
 | `XAPK_TO_PROTO_DUMPER` | Path to `Il2CppDumper.dll` (skips cached dumper) |
-| `IL2CPP_DUMPER_VERSION` | Il2CppDumper release tag (default: `v6.7.46`) |
+| `IL2CPP_DUMPER_REPO` | GitHub `owner/repo` for the dumper release (default: `Windows81/Il2CppDumper`) |
+| `IL2CPP_DUMPER_VERSION` | Release tag (default: `v20260329T093452Z`) |
+| `IL2CPP_DUMPER_ASSET` | Release zip asset name (default: `Il2CppDumper-CLI-20260329T093452Z_0507132.zip`) |
 
 ## Contributing
 
