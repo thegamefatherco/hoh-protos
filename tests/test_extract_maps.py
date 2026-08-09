@@ -38,6 +38,38 @@ public sealed class UnlockedCityDTO : IMessage<UnlockedCityDTO> {
 }
 """
 
+# Unity 6000 / Windows81 Il2CppDumper: non-generic IMessage + Descriptor property
+# that must not be mistaken for the interface gate.
+GAME_DESIGN_RESPONSE_BLOCK = """
+public sealed class GameDesignResponse : IUiData, IEventSystemHandler, IVersioned, IMessage, IAsyncStateMachine
+{
+	private static readonly MessageParser<GameDesignResponse> _parser; // 0x0
+	private UnknownFieldSet _unknownFields; // 0x10
+	public const int ChecksumFieldNumber = 1;
+	private string checksum_; // 0x18
+	public const int ContentFieldNumber = 2;
+	private static readonly FieldCodec<Any> _repeated_content_codec; // 0x8
+	private readonly RepeatedField<Any> content_; // 0x20
+
+	private MessageDescriptor pb::Google.Protobuf.IMessage.Descriptor { get; }
+	public string Checksum { get; set; }
+	public RepeatedField<Any> Content { get; }
+}
+"""
+
+HERO_UNIT_STAT_CONFIG_BLOCK = """
+public sealed class HeroUnitStatConfigDefinitionDTO : IUiData, IEventSystemHandler, IVersioned, IMessage, IAsyncStateMachine
+{
+	public const int DefinitionIdFieldNumber = 1;
+	private string definitionId_; // 0x18
+	public const int MinFieldNumber = 5;
+	private static readonly FieldCodec<Nullable<double>> _single_min_codec; // 0x8
+	private Nullable<double> min_; // 0x38
+
+	private MessageDescriptor pb::Google.Protobuf.IMessage.Descriptor { get; }
+}
+"""
+
 
 def _field_by_number(msg: MessageDef, number: int) -> FieldDef:
     return next(f for f in msg.fields if f.number == number)
@@ -116,3 +148,49 @@ def test_protofile_to_fdp_emits_map_entry() -> None:
     assert entry.field[0].type == descriptor_pb2.FieldDescriptorProto.TYPE_STRING
     assert entry.field[1].name == "value"
     assert entry.field[1].type == descriptor_pb2.FieldDescriptorProto.TYPE_INT32
+
+
+def test_bare_imessage_parses_gamedesign_response() -> None:
+    msg = parse_message_block("GameDesignResponse", GAME_DESIGN_RESPONSE_BLOCK)
+    assert msg is not None
+    assert len(msg.fields) == 2
+
+    checksum = _field_by_number(msg, 1)
+    assert checksum.name == "checksum"
+    assert checksum.type == descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    assert checksum.label == descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+
+    content = _field_by_number(msg, 2)
+    assert content.name == "content"
+    assert content.label == descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED
+    assert content.type == descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE
+    assert content.type_name == "google.protobuf.Any"
+
+
+def test_bare_imessage_parses_nullable_wrapper_field() -> None:
+    msg = parse_message_block(
+        "HeroUnitStatConfigDefinitionDTO", HERO_UNIT_STAT_CONFIG_BLOCK
+    )
+    assert msg is not None
+    assert len(msg.fields) == 2
+
+    definition_id = _field_by_number(msg, 1)
+    assert definition_id.name == "definition_id"
+    assert definition_id.type == descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    min_field = _field_by_number(msg, 5)
+    assert min_field.name == "min"
+    assert min_field.proto3_optional is True
+    assert min_field.type == descriptor_pb2.FieldDescriptorProto.TYPE_DOUBLE
+
+
+def test_descriptor_property_alone_is_not_a_message() -> None:
+    """IMessage.Descriptor in the body must not satisfy the gate without a header match."""
+    block = """
+public sealed class NotAProto {
+	private MessageDescriptor pb::Google.Protobuf.IMessage.Descriptor { get; }
+	public const int ChecksumFieldNumber = 1;
+	private string checksum_;
+}
+"""
+    assert parse_message_block("NotAProto", block) is None

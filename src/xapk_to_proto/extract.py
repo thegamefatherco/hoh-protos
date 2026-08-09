@@ -344,8 +344,20 @@ def resolve_field_type_name(pf: ProtoFile, md: MessageDef, type_name: str) -> st
     return _qualify(pf.package, type_name)
 
 
+def _looks_like_protobuf_message(block: str) -> bool:
+    """True if the class header implements IMessage or IMessage<T>.
+
+    Unity 6000 / newer Il2CppDumper builds emit non-generic ``IMessage``.
+    Older dumps use ``IMessage<T>``. Match only the class header (text before
+    the first ``{``) so ``pb::Google.Protobuf.IMessage.Descriptor`` properties
+    do not false-positive.
+    """
+    header, _, _ = block.partition("{")
+    return bool(re.search(r"\bIMessage\b", header))
+
+
 def parse_message_block(name: str, block: str) -> MessageDef | None:
-    if "IMessage<" not in block:
+    if not _looks_like_protobuf_message(block):
         return None
     msg = MessageDef(name=name)
     field_numbers: dict[int, str] = {}
@@ -504,7 +516,7 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
                     pf.enums.append(enum_def)
             else:
                 msg = parse_message_block(name, block)
-                if msg and (msg.fields or "IMessage<" in block):
+                if msg and (msg.fields or _looks_like_protobuf_message(block)):
                     existing = find_message(pf, name)
                     if existing and not existing.fields:
                         existing.fields = msg.fields
