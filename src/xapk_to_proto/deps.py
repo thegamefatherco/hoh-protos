@@ -154,15 +154,13 @@ def install_dumper(*, force: bool = False, verbose: bool = False) -> Path:
 
     url = dumper_url()
     dumper_cache_dir().mkdir(parents=True, exist_ok=True)
-    zip_path = Path(tempfile.mkstemp(suffix=".zip")[1])
-    try:
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "dumper.zip"
         if verbose:
             print(f"Downloading {url}", flush=True)
         urlretrieve(url, zip_path)
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(dumper_cache_dir())
-    finally:
-        zip_path.unlink(missing_ok=True)
 
     dll = find_dumper_dll(dumper_cache_dir())
     if dll is None:

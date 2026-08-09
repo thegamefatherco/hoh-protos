@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 from xapk_to_proto import deps
@@ -58,6 +59,22 @@ def test_has_netcore_runtime(tmp_path: Path):
     runtime.mkdir(parents=True)
     assert deps.has_netcore_runtime(tmp_path, "9") is True
     assert deps.has_netcore_runtime(tmp_path, "8") is False
+
+
+def test_install_dumper_extracts_from_zip(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(deps, "dumper_cache_dir", lambda: cache)
+
+    def fake_urlretrieve(_url: str, filename: str | Path) -> None:
+        path = Path(filename)
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("Il2CppDumper.dll", b"MZ")
+
+    monkeypatch.setattr(deps, "urlretrieve", fake_urlretrieve)
+
+    dll = deps.install_dumper()
+    assert dll == cache / "Il2CppDumper.dll"
+    assert dll.is_file()
 
 
 def test_filter_dumper_output_drops_readkey_noise():
