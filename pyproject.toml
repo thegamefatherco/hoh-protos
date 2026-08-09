@@ -25,6 +25,8 @@ dependencies = ["protobuf>=4.25", "platformdirs>=4.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
+# UnityPy documents breaking changes between minor versions, hence the ceiling.
+assets = ["UnityPy>=1.25.2,<1.26"]
 
 [project.scripts]
 hoh-protos = "xapk_to_proto.cli:main"

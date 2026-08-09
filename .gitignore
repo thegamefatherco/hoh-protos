@@ -3,6 +3,8 @@ __pycache__/
 output/*
 !output/proto/
 
+AssetRipper_mac_arm64/
+
 .venv/
 .env
 .env.*

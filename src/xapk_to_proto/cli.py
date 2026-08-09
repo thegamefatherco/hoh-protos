@@ -8,6 +8,9 @@ import sys
 from pathlib import Path
 
 from xapk_to_proto import (
+    apkpure,
+    assetlink,
+    assets,
     definitions,
     deps,
     emit,
@@ -15,6 +18,7 @@ from xapk_to_proto import (
     gamedesign,
     gamedesign_constants,
     loca,
+    unpack,
     wirefix,
 )
 from xapk_to_proto.pipeline import run as pipeline_run
@@ -30,6 +34,10 @@ _SUBCOMMANDS = frozenset(
         "definitions",
         "loca",
         "wirefix",
+        "download-xapk",
+        "download-assets",
+        "unpack-assets",
+        "link-assets",
     }
 )
 
@@ -205,6 +213,54 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help="Loca output directory (default: {output}/loca)",
+    )
+    p.add_argument(
+        "--assets",
+        action="store_true",
+        help=(
+            "Download Addressables asset bundles from the CDN using the "
+            "catalog found in the XAPK"
+        ),
+    )
+    p.add_argument(
+        "--assets-out",
+        type=Path,
+        default=None,
+        help="Assets output directory (default: {output}/assets)",
+    )
+    p.add_argument(
+        "--unpack-assets",
+        action="store_true",
+        help=(
+            "Extract images from the Addressables bundles shipped inside the "
+            "XAPK into {output}/unpacked (needs the assets extra)"
+        ),
+    )
+    p.add_argument(
+        "--unpack-assets-out",
+        type=Path,
+        default=None,
+        help="Unpacked images output directory (default: {output}/unpacked)",
+    )
+    p.add_argument(
+        "--link-assets",
+        action="store_true",
+        help=(
+            "Resolve asset fields in the decoded definitions against the unpack "
+            "index; requires --definitions-input and --unpack-assets"
+        ),
+    )
+    p.add_argument(
+        "--link-assets-index",
+        type=Path,
+        default=None,
+        help="Asset index.json to link against (default: the unpacked output)",
+    )
+    p.add_argument(
+        "--link-assets-out",
+        type=Path,
+        default=None,
+        help="Asset links output directory (default: {output}/asset_links)",
     )
 
 
@@ -385,6 +441,294 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("-v", "--verbose", action="store_true")
 
 
+def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "download-xapk",
+        help="Download the game XAPK from APKPure (latest or a specific version)",
+        description=(
+            "Resolve a release on APKPure and download its XAPK. Partial downloads "
+            "resume automatically."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos download-xapk -o ./fixtures\n"
+            "  hoh-protos download-xapk 1.49.8 -o ./fixtures/1.49.8.xapk\n"
+        ),
+    )
+    p.add_argument(
+        "version",
+        nargs="?",
+        default=None,
+        help="Version name to download (default: latest)",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help=(
+            "Output path. A *.xapk path is used as the filename; anything else "
+            "is a directory that receives {package}_{version}.xapk "
+            "(default: current directory)"
+        ),
+    )
+    p.add_argument(
+        "--package",
+        default=apkpure.DEFAULT_PACKAGE,
+        help=f"Android package name (default: {apkpure.DEFAULT_PACKAGE})",
+    )
+    p.add_argument(
+        "--abi",
+        default=apkpure.DEFAULT_ABI,
+        help=(
+            f"Native ABI split to request (default: {apkpure.DEFAULT_ABI}; "
+            "the pipeline needs arm64-v8a or armeabi-v7a)"
+        ),
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download even if the destination file already exists",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "download-assets",
+        help="Download Addressables asset bundles listed in the game catalog",
+        description=(
+            "Parse bundle names out of the Addressables catalog and download them "
+            "from the InnoGames CDN. Bundles already present are skipped, so an "
+            "interrupted run can be resumed by re-running the same command."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "The CDN only keeps bundle hashes for recent builds, so a stale catalog "
+            "produces mostly 404s. Use --dry-run to inspect URLs first.\n\n"
+            "Examples:\n"
+            "  hoh-protos download-assets --xapk game.xapk -o ./assets\n"
+            "  hoh-protos download-assets --catalog catalog.bin -o ./assets "
+            "--only hero --jobs 16\n"
+        ),
+    )
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument(
+        "--catalog",
+        type=Path,
+        help="Addressables catalog.bin path",
+    )
+    src.add_argument(
+        "--xapk",
+        type=Path,
+        help="XAPK to read assets/aa/catalog.bin from (no full unpack)",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Output directory for .bundle files and manifest.json",
+    )
+    p.add_argument(
+        "--cdn-root",
+        default=assets.CDN_ROOT,
+        help=f"CDN base URL (default: {assets.CDN_ROOT})",
+    )
+    p.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        metavar="TERM",
+        help=(
+            "Download only bundles whose filename contains TERM "
+            "(repeatable; disables --skip)"
+        ),
+    )
+    p.add_argument(
+        "--skip",
+        action="append",
+        default=None,
+        metavar="PREFIX",
+        help=(
+            "Skip bundles whose filename starts with PREFIX (repeatable; "
+            f"default: {', '.join(assets.DEFAULT_SKIP)})"
+        ),
+    )
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=assets.DEFAULT_JOBS,
+        help=f"Parallel downloads (default: {assets.DEFAULT_JOBS})",
+    )
+    p.add_argument(
+        "--retries",
+        type=int,
+        default=assets.DEFAULT_RETRIES,
+        help=(
+            f"Attempts per bundle for transient failures "
+            f"(default: {assets.DEFAULT_RETRIES}; 404s are never retried)"
+        ),
+    )
+    p.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete the output directory before downloading",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the resolved bundle URLs without downloading",
+    )
+    p.add_argument(
+        "--unpack",
+        action="store_true",
+        help="Extract images from the downloaded bundles once the download finishes",
+    )
+    p.add_argument(
+        "--unpack-out",
+        type=Path,
+        default=None,
+        help="Output directory for extracted images (default: OUTPUT/unpacked)",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "unpack-assets",
+        help="Extract images from Addressables bundles and index them by name",
+        description=(
+            "Decode Sprite and Texture2D objects out of Unity asset bundles into "
+            "PNGs, and write an index.json mapping asset names and Addressables "
+            "addresses to the extracted files."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "The XAPK ships the complete bundle set under assets/aa/<platform>/, "
+            "so --xapk needs no network and covers far more than a CDN pull.\n"
+            "Requires the assets extra: pip install 'hoh-protos[assets]'\n\n"
+            "Examples:\n"
+            "  hoh-protos unpack-assets --xapk game.xapk -o ./output/unpacked\n"
+            "  hoh-protos unpack-assets --bundles ./output/assets "
+            "-o ./output/unpacked --only spriteatlas\n"
+        ),
+    )
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument(
+        "--xapk",
+        type=Path,
+        help="XAPK to stream assets/aa/**.bundle from (no full unpack)",
+    )
+    src.add_argument(
+        "--bundles",
+        type=Path,
+        help="Directory of .bundle files, e.g. the download-assets output",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Output directory for extracted/ and index.json",
+    )
+    p.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        metavar="TERM",
+        help=(
+            "Unpack only bundles whose filename contains TERM "
+            "(repeatable; disables --skip)"
+        ),
+    )
+    p.add_argument(
+        "--skip",
+        action="append",
+        default=None,
+        metavar="PREFIX",
+        help="Skip bundles whose filename starts with PREFIX (repeatable)",
+    )
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=unpack.DEFAULT_JOBS,
+        help=(
+            "Parallel worker processes for texture decoding "
+            f"(default: {unpack.DEFAULT_JOBS})"
+        ),
+    )
+    p.add_argument(
+        "--include-atlas-textures",
+        action="store_true",
+        help=(
+            "Also export atlas sheet textures (sactx-*) and textures shadowed by "
+            "a sprite of the same name; skipped by default as redundant"
+        ),
+    )
+    p.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete the output directory first instead of resuming",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the selected bundle names without extracting",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
+def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "link-assets",
+        help="Resolve asset fields in decoded definitions to extracted images",
+        description=(
+            "Join asset-reference string fields (asset_id, backdrop_asset_id, "
+            "icon, ...) in decoded definition JSON against the unpack index. "
+            "Which fields to inspect is derived from the descriptor set."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Each value resolves to one of: image (a PNG), bundle_only (an "
+            "address whose bundle holds a prefab, not art), or miss.\n\n"
+            "Example:\n"
+            "  hoh-protos link-assets --index ./output/unpacked/index.json \\\n"
+            "    --descriptors ./output/descriptors.pb \\\n"
+            "    --definitions ./output/definitions/startup -o ./output/asset_links\n"
+        ),
+    )
+    p.add_argument(
+        "--index",
+        type=Path,
+        required=True,
+        help="index.json written by unpack-assets (or its directory)",
+    )
+    p.add_argument(
+        "--descriptors",
+        type=Path,
+        required=True,
+        help="descriptors.pb used to discover asset fields and message types",
+    )
+    p.add_argument(
+        "--definitions",
+        type=Path,
+        action="append",
+        required=True,
+        metavar="DIR",
+        help="Directory of decoded per-type JSON from `definitions` (repeatable)",
+    )
+    p.add_argument(
+        "-o",
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory for links.json and report.json",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hoh-protos",
@@ -394,6 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Run `hoh-protos setup` once before the main pipeline.\n\n"
             "Examples:\n"
             "  hoh-protos setup\n"
+            "  hoh-protos download-xapk -o ./fixtures\n"
             '  hoh-protos "/path/to/game.xapk" -o ./output\n'
             "  hoh-protos extract --metadata meta.dat --dump-cs dump.cs --out out.pb\n"
         ),
@@ -409,6 +754,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_wirefix_parser(sub)
     _add_definitions_parser(sub)
     _add_loca_parser(sub)
+    _add_download_xapk_parser(sub)
+    _add_download_assets_parser(sub)
+    _add_unpack_assets_parser(sub)
+    _add_link_assets_parser(sub)
 
     return parser
 
@@ -554,5 +903,148 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "download-xapk":
+        try:
+            dl = apkpure.download_xapk(
+                output=args.output,
+                package=args.package,
+                version=args.version,
+                abi=args.abi,
+                force=args.force,
+                verbose=args.verbose,
+            )
+        except RuntimeError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if dl.skipped:
+            print(f"already downloaded: {dl.path} (use --force to replace)")
+            return 0
+        print(f"{dl.release.package} {dl.release.version}: {dl.size} bytes")
+        print(f"wrote {dl.path}")
+        return 0
+
+    if args.command == "download-assets":
+        try:
+            assets_result = assets.run_assets_download(
+                catalog=args.catalog.resolve() if args.catalog else None,
+                xapk=args.xapk.resolve() if args.xapk else None,
+                out_dir=args.output.resolve(),
+                cdn_root=args.cdn_root,
+                only=tuple(args.only or ()),
+                skip=tuple(args.skip) if args.skip else assets.DEFAULT_SKIP,
+                jobs=args.jobs,
+                retries=args.retries,
+                clean=args.clean,
+                dry_run=args.dry_run,
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in assets_result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        if args.dry_run:
+            print(
+                f"{assets_result.selected} of {assets_result.total_bundles} "
+                "bundle(s) selected (dry run)",
+                file=sys.stderr,
+            )
+            return 0
+        print(
+            f"assets: {assets_result.downloaded} downloaded, "
+            f"{assets_result.skipped_existing} already present, "
+            f"{len(assets_result.failed)} failed "
+            f"-> {assets_result.out_dir}"
+        )
+        if args.unpack:
+            unpack_out = (
+                args.unpack_out.resolve()
+                if args.unpack_out
+                else assets_result.out_dir / "unpacked"
+            )
+            try:
+                unpack_result = unpack.run_unpack(
+                    bundles=assets_result.out_dir,
+                    out_dir=unpack_out,
+                    verbose=args.verbose,
+                )
+            except (FileNotFoundError, ValueError, unpack.UnpackError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            _print_unpack_result(unpack_result)
+        return 0
+
+    if args.command == "unpack-assets":
+        try:
+            unpack_result = unpack.run_unpack(
+                xapk=args.xapk.resolve() if args.xapk else None,
+                bundles=args.bundles.resolve() if args.bundles else None,
+                out_dir=args.output.resolve(),
+                only=tuple(args.only or ()),
+                skip=tuple(args.skip or ()),
+                jobs=args.jobs,
+                include_atlas_textures=args.include_atlas_textures,
+                clean=args.clean,
+                dry_run=args.dry_run,
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError, unpack.UnpackError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            print(
+                f"{unpack_result.bundles_selected} of "
+                f"{unpack_result.bundles_total} bundle(s) selected (dry run)",
+                file=sys.stderr,
+            )
+            return 0
+        _print_unpack_result(unpack_result)
+        return 0
+
+    if args.command == "link-assets":
+        try:
+            link_result = assetlink.run_link_export(
+                index_path=args.index.resolve(),
+                descriptors_pb=args.descriptors.resolve(),
+                definition_dirs=[d.resolve() for d in args.definitions],
+                out_dir=args.out_dir.resolve(),
+                verbose=args.verbose,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        _print_link_result(link_result, args.out_dir.resolve())
+        return 0
+
     parser.print_help()
     return 0
+
+
+def _print_unpack_result(result: unpack.UnpackResult) -> None:
+    for warning in result.warnings[:20]:
+        print(f"warning: {warning}", file=sys.stderr)
+    extra = len(result.warnings) - 20
+    if extra > 0:
+        print(f"warning: ... and {extra} more", file=sys.stderr)
+    print(
+        f"unpacked: {result.images_written} image(s) from "
+        f"{result.bundles_selected - result.bundles_skipped} bundle(s) "
+        f"({result.bundles_skipped} already done, {result.bundles_failed} failed) "
+        f"-> {result.out_dir}"
+    )
+
+
+def _print_link_result(result: assetlink.LinkResult, out_dir: Path) -> None:
+    for warning in result.warnings[:20]:
+        print(f"warning: {warning}", file=sys.stderr)
+    totals = result.totals()
+    print(
+        f"linked: {totals['values']} asset reference(s) across "
+        f"{totals['records_with_assets']} record(s) in "
+        f"{totals['types_scanned']} type(s)"
+    )
+    print(
+        f"  {totals['image']} image, {totals['bundle_only']} bundle-only, "
+        f"{totals['definition_ref']} gamedesign id, {totals['miss']} unresolved"
+    )
+    print(f"wrote {out_dir / assetlink.REPORT_FILENAME}")

@@ -10,6 +10,8 @@ from pathlib import Path
 from google.protobuf import descriptor_pb2
 
 from xapk_to_proto import (
+    assetlink,
+    assets,
     definitions,
     dumper,
     emit,
@@ -17,6 +19,7 @@ from xapk_to_proto import (
     gamedesign,
     gamedesign_constants,
     loca,
+    unpack,
     wirefix,
 )
 from xapk_to_proto.xapk import discover_il2cpp, extract_xapk, validate_metadata
@@ -206,6 +209,7 @@ def run(args: Namespace) -> int:
                 print(f"warning: {warning}", file=sys.stderr)
             print(f"  gamedesign: {gd_out / 'manifest.json'}", flush=True)
 
+        definition_dirs: list[Path] = []
         defs_inputs = getattr(args, "definitions_input", None)
         if defs_inputs:
             defs_out = (
@@ -218,6 +222,7 @@ def run(args: Namespace) -> int:
                     print(f"warning: definitions input not found: {blob}", file=sys.stderr)
                     continue
                 dest = defs_out / blob.stem
+                definition_dirs.append(dest)
                 defs_result = definitions.run_definitions_export(
                     descriptors_pb=descriptors,
                     out_dir=dest,
@@ -256,6 +261,84 @@ def run(args: Namespace) -> int:
                 print(
                     f"  loca[{loca_result.locale}]: {loca_result.entry_count} entries "
                     f"-> {loca_out}",
+                    flush=True,
+                )
+
+        if getattr(args, "assets", False):
+            assets_out = (
+                getattr(args, "assets_out", None) or output / "assets"
+            ).resolve()
+            log("[+] Downloading asset bundles...")
+            catalog = assets.find_catalog(xapk_root)
+            assets_result = assets.run_assets_download(
+                catalog=catalog,
+                out_dir=assets_out,
+                verbose=args.verbose,
+            )
+            for warning in assets_result.warnings:
+                print(f"warning: {warning}", file=sys.stderr)
+            print(
+                f"  assets: {assets_result.downloaded} downloaded, "
+                f"{assets_result.skipped_existing} already present, "
+                f"{len(assets_result.failed)} failed -> {assets_out}",
+                flush=True,
+            )
+
+        unpack_out: Path | None = None
+        if getattr(args, "unpack_assets", False):
+            unpack_out = (
+                getattr(args, "unpack_assets_out", None) or output / "unpacked"
+            ).resolve()
+            log("[+] Unpacking asset bundles...")
+            bundle_dir = unpack.find_local_bundle_dir(xapk_root)
+            unpack_result = unpack.run_unpack(
+                bundles=bundle_dir,
+                out_dir=unpack_out,
+                verbose=args.verbose,
+            )
+            for warning in unpack_result.warnings[:20]:
+                print(f"warning: {warning}", file=sys.stderr)
+            print(
+                f"  unpacked: {unpack_result.images_written} image(s) from "
+                f"{unpack_result.bundles_selected} bundle(s) "
+                f"({unpack_result.bundles_failed} failed) -> {unpack_out}",
+                flush=True,
+            )
+
+        if getattr(args, "link_assets", False):
+            link_out = (
+                getattr(args, "link_assets_out", None) or output / "asset_links"
+            ).resolve()
+            index_path = (
+                getattr(args, "link_assets_index", None)
+                or (unpack_out or output / "unpacked") / unpack.INDEX_FILENAME
+            )
+            if not definition_dirs:
+                print(
+                    "warning: --link-assets needs --definitions-input; skipped",
+                    file=sys.stderr,
+                )
+            elif not Path(index_path).is_file():
+                print(
+                    f"warning: asset index not found: {index_path}; "
+                    "run with --unpack-assets first",
+                    file=sys.stderr,
+                )
+            else:
+                log("[+] Linking assets to definitions...")
+                link_result = assetlink.run_link_export(
+                    index_path=Path(index_path).resolve(),
+                    descriptors_pb=descriptors,
+                    definition_dirs=definition_dirs,
+                    out_dir=link_out,
+                    verbose=args.verbose,
+                )
+                totals = link_result.totals()
+                print(
+                    f"  asset links: {totals['image']} image, "
+                    f"{totals['bundle_only']} bundle-only, "
+                    f"{totals['definition_ref']} gamedesign id, "
+                    f"{totals['miss']} unresolved -> {link_out}",
                     flush=True,
                 )
 

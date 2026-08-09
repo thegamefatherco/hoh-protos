@@ -7,7 +7,7 @@ The `hoh-protos` CLI unpacks the XAPK, runs [Il2CppDumper](https://github.com/Pe
 ## Requirements
 
 - **Python** 3.10 or newer
-- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`)
+- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) — `hoh-protos download-xapk` can fetch one
 - Network access the first time you run `hoh-protos setup` (downloads .NET 8 and Il2CppDumper into your user cache)
 
 Games that are not IL2CPP or do not use protobuf will fail with a clear error.
@@ -32,6 +32,16 @@ pip install -e .
 pip install hoh-protos
 ```
 
+### Optional: asset extraction
+
+`unpack-assets` needs [UnityPy](https://github.com/K0lb3/UnityPy), which is kept
+out of the base install because it pulls Pillow and several native wheels that
+the proto pipeline does not need:
+
+```bash
+pip install 'hoh-protos[assets]'      # or: pip install -e '.[assets]'
+```
+
 ## One-time setup
 
 Download the bundled .NET runtime and Il2CppDumper (cached under your platform user cache directory, typically `~/.cache/hoh-protos` on Linux):
@@ -52,7 +62,8 @@ If you already have **dotnet** and **Il2CppDumper** on your machine, you can poi
 
 ```bash
 hoh-protos setup
-hoh-protos "/path/to/game.xapk" -o ./output
+hoh-protos download-xapk -o ./fixtures
+hoh-protos "./fixtures/com.innogames.heroesofhistory_1.49.9.xapk" -o ./output
 ```
 
 Default output directory is `{xapk_stem}_protos/` next to the XAPK if you omit `-o`.
@@ -102,6 +113,10 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 | Command | Purpose |
 | --- | --- |
 | `hoh-protos setup` | Install .NET 8 + Il2CppDumper into the user cache |
+| `hoh-protos download-xapk [VERSION] -o OUT` | Download the game XAPK from APKPure (latest by default) |
+| `hoh-protos download-assets --xapk … -o ./assets` | Download Addressables bundles from the CDN |
+| `hoh-protos unpack-assets --xapk … -o ./unpacked` | Extract images from Addressables bundles + build an asset index |
+| `hoh-protos link-assets --index … --definitions … -o ./asset_links` | Resolve `asset_id`-style fields to extracted images |
 | `hoh-protos run GAME.xapk -o OUT` | Full pipeline (same as default invocation below) |
 | `hoh-protos GAME.xapk -o OUT` | Shorthand for `run` |
 | `hoh-protos extract --metadata … --dump-cs … --out descriptors.pb` | Build descriptors only |
@@ -109,6 +124,160 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 | `hoh-protos definitions --descriptors descriptors.pb --input BLOB --out-dir ./definitions` | Decode captured server blobs into per-type JSON |
 | `hoh-protos loca --descriptors … --dump-cs … --input loca-compressed --out-dir ./loca` | Decode English loca catalog + display-name maps |
 | `hoh-protos gamedesign-constants --dump-cs … --out-dir ./gamedesign/constants` | Emit GameDesign string ID enums as TypeScript |
+
+### Downloading the XAPK
+
+```bash
+hoh-protos download-xapk -o ./fixtures            # latest
+hoh-protos download-xapk 1.49.8 -o ./fixtures     # specific version
+```
+
+A path ending in `.xapk` is used as the filename; anything else is treated as a
+directory that receives `{package}_{version}.xapk`. Interrupted downloads resume
+from the partial `.xapk.part` file, and an existing destination is left alone
+unless you pass `--force`.
+
+Only the **XAPK** bundle format is available for this package — the plain APK
+endpoint returns HTTP 403. `--abi` selects the native split (default
+`arm64-v8a`, which is what the pipeline's `libil2cpp.so` lookup prefers).
+
+APKPure's `?version=` parameter only accepts `latest`; a real version string
+redirects to the site root. Specific versions therefore require the numeric
+`versionCode`, which is only published inside the HTML download page, so this
+command always scrapes that page before downloading. If APKPure changes its
+markup or starts serving a Cloudflare challenge, the command fails with the URL
+it could not parse.
+
+### Downloading asset bundles
+
+Bundle names are recovered from the Addressables catalog and fetched from the
+InnoGames CDN:
+
+```bash
+hoh-protos download-assets --xapk ./fixtures/game.xapk -o ./assets
+hoh-protos download-assets --catalog ./fixtures/catalog.bin -o ./assets --only cleopatra
+```
+
+`--xapk` reads `assets/aa/catalog.bin` straight out of the nested
+`AddressablesAssetPack.apk` without unpacking the ~1 GB archive. Bundles already
+present in the output directory are skipped, so re-running the command resumes an
+interrupted download; `--clean` wipes the directory first. Downloads run through
+a temp file, so an interrupted transfer never leaves a truncated bundle that a
+later run would mistake for a finished one.
+
+Other flags: `--only TERM` (substring match, repeatable, overrides `--skip`),
+`--skip PREFIX` (default `vfx`, `pfx`), `--jobs` (default 10), `--retries`
+(default 2, transient failures only), and `--dry-run` to print the resolved URLs
+without downloading. A `manifest.json` records counts and the failed bundle list.
+
+**Expect a low hit rate from an XAPK catalog.** The catalog embedded in the XAPK
+describes the bundles that *ship inside the APK*, not the CDN's remote set, and
+only ~8% of those names resolve against the CDN. A captured **remote** catalog
+(the timestamp-named `catalog_<build-time>.bin` the game fetches at runtime) is
+the correct input for CDN downloads, and even then availability drops as bundle
+hashes churn between builds. Use `--dry-run` and a narrow `--only` filter before
+committing to a full run.
+
+**That caveat applies to CDN downloads only.** The bundles the catalog describes
+are already on disk inside the XAPK, under `assets/aa/<platform>/`. If what you
+want is images rather than the CDN's remote-only content, skip this command and
+use [`unpack-assets`](#unpacking-images-from-asset-bundles) instead.
+
+The full pipeline can do this in one pass with `--assets` (output defaults to
+`{output}/assets`), reusing the XAPK it already extracted:
+
+```bash
+hoh-protos run ./fixtures/game.xapk -o ./output --assets
+```
+
+### Unpacking images from asset bundles
+
+**For images, do not download from the CDN — unpack the XAPK.** The XAPK ships
+the complete Addressables bundle set under `assets/aa/<platform>/` (5,779
+bundles in a 1.48 build, of which only 2 have opaque hash names), so unpacking
+is offline, complete, and unaffected by the CDN hash churn described above.
+
+```bash
+hoh-protos unpack-assets --xapk ./fixtures/game.xapk -o ./output/unpacked
+hoh-protos unpack-assets --bundles ./output/assets -o ./output/unpacked --only spriteatlas
+```
+
+`--xapk` streams bundles straight out of the nested `AddressablesAssetPack.apk`,
+so the ~1 GB archive is never unpacked. `--bundles` reads a directory instead,
+which is how you unpack a `download-assets` result (`download-assets --unpack`
+does both in one run). A full 5,779-bundle pass takes roughly 20 seconds on 12
+workers and yields ~9,600 PNGs.
+
+Output:
+
+```text
+unpacked/
+├── extracted/<address>/<asset name>.png
+└── index.json
+```
+
+Only `Sprite` and `Texture2D` objects are exported. Atlas sheet textures
+(`sactx-*`) and textures shadowed by a sprite of the same name are skipped as
+redundant — pass `--include-atlas-textures` to keep them. Re-running resumes
+from `index.json` rather than redoing finished bundles; `--clean` starts over.
+
+`index.json` carries two lookup tables, because game data references art in two
+different ways:
+
+- `by_name` — sprite/texture name to PNG path. A sprite's `m_Name` *is* the
+  address the game data uses (`icon_gold_ore_3`), and for icons packed into a
+  shared SpriteAtlas this is the only way to find them: they appear nowhere in
+  `catalog.bin`.
+- `by_bundle_prefix` — Addressables address to its bundle. Addresses like
+  `Unit_QueenBoudicca` name a bundle holding a *prefab*, which legitimately has
+  no image.
+
+### Linking assets to game data
+
+`link-assets` resolves the asset-reference string fields in decoded definitions
+against that index. The fields are discovered from the descriptor set (string
+fields matching `asset|icon|sprite|image|portrait|banner|backdrop|…`), so new
+builds pick up new fields without a code change.
+
+```bash
+hoh-protos definitions --descriptors output/descriptors.pb \
+  --input fixtures/gamedesign --out-dir output/definitions
+
+hoh-protos link-assets \
+  --index output/unpacked/index.json \
+  --descriptors output/descriptors.pb \
+  --definitions output/definitions/gamedesign \
+  -o output/asset_links
+```
+
+Or in one pipeline run: `--unpack-assets --link-assets --definitions-input …`.
+
+This writes `links.json` (per type, per record, per field) and `report.json`
+(hit rates per field plus the most common unresolved values). Every value lands
+in one of four buckets:
+
+| Status | Meaning |
+| --- | --- |
+| `image` | Resolved to an extracted PNG |
+| `bundle_only` | Address names a bundle holding a prefab/mesh, so there is no image |
+| `definition_ref` | Namespaced gamedesign id (`resource.agate`), a different namespace — not a lookup failure |
+| `miss` | Genuinely unresolved |
+
+Measured against a 1.48 `gamedesign` capture (23,138 entries, 129 types) with
+the full XAPK unpacked: **7,067 asset references — 71% `image`, 10%
+`bundle_only`, 8% `definition_ref`, 12% `miss`.** Fields that previously could
+not be resolved at all now do, e.g. `PantheonNodeDefinitionDTO.asset_id` at 76/76
+and `HeroUnitDefinitionDTO.asset_id` at 899 images with no misses.
+
+Expect `bundle_only` rather than images for `BuildingDefinitionDTO.asset_id`
+(479 of 505) and similar prefab references. The remaining misses are mostly
+icons that are not in the XAPK at all (`icon_chest_alliance_points*`), i.e.
+genuinely remote-only content.
+
+Note that `hoh-protos gamedesign` writes only hero-prefixed types, which drops
+`BuildingDefinitionDTO`, `CityDefinitionDTO`, `RiftDefinitionDTO`,
+`SelectionKitDefinitionDTO`, and `PantheonNodeDefinitionDTO` — all of which
+carry asset fields. Use `hoh-protos definitions` (all types) as the link input.
 
 ### Decoding captured server blobs
 
