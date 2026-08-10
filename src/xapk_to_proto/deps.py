@@ -109,11 +109,37 @@ def has_netcore_runtime(dotnet_root: Path, major: str = "9") -> bool:
     return any(p.is_dir() and p.name.startswith(prefix) for p in shared.iterdir())
 
 
+def _system_dotnet_with_runtime(major: str = "9") -> Path | None:
+    """Return a PATH/DOTNET_ROOT ``dotnet`` that has Microsoft.NETCore.App *major*.x."""
+    exe = shutil.which("dotnet")
+    if not exe:
+        return None
+    exe_path = Path(exe)
+
+    roots: list[Path] = []
+    env_root = os.environ.get("DOTNET_ROOT")
+    if env_root:
+        roots.append(Path(env_root))
+    roots.append(exe_path.resolve().parent)
+
+    for root in roots:
+        if has_netcore_runtime(root, major):
+            return exe_path
+    return None
+
+
 def install_dotnet(*, force: bool = False, verbose: bool = False) -> Path:
     dest = dotnet_cache_dir()
     dotnet_bin = dest / "dotnet"
     if dotnet_bin.is_file() and not force and has_netcore_runtime(dest, "9"):
         return dotnet_bin
+
+    if not force:
+        system = _system_dotnet_with_runtime("9")
+        if system is not None:
+            if verbose:
+                print(f"using system dotnet: {system}", flush=True)
+            return system
 
     if force and dest.exists():
         shutil.rmtree(dest)

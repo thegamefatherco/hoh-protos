@@ -1,3 +1,6 @@
 *
 !.gitignore
 !synthetic_gamedesign.pb
+!un0/
+!un0/*/
+!un0/*/gamedesign

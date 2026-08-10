@@ -61,6 +61,38 @@ def test_has_netcore_runtime(tmp_path: Path):
     assert deps.has_netcore_runtime(tmp_path, "8") is False
 
 
+def test_system_dotnet_with_runtime_uses_dotnet_root(tmp_path: Path, monkeypatch):
+    root = tmp_path / "dotnet"
+    exe = root / "dotnet"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+    (root / "shared" / "Microsoft.NETCore.App" / "9.0.1").mkdir(parents=True)
+
+    monkeypatch.setenv("DOTNET_ROOT", str(root))
+    monkeypatch.setattr(deps.shutil, "which", lambda _name: str(exe))
+
+    assert deps._system_dotnet_with_runtime("9") == exe
+    assert deps._system_dotnet_with_runtime("8") is None
+
+
+def test_install_dotnet_prefers_system_over_bash_installer(
+    tmp_path: Path, monkeypatch
+):
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(deps, "dotnet_cache_dir", lambda: cache)
+
+    system = tmp_path / "system-dotnet"
+    system.write_text("", encoding="utf-8")
+    monkeypatch.setattr(deps, "_system_dotnet_with_runtime", lambda _major="9": system)
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("bash installer should not run when system dotnet exists")
+
+    monkeypatch.setattr(deps, "urlretrieve", boom)
+
+    assert deps.install_dotnet() == system
+
+
 def test_install_dumper_extracts_from_zip(tmp_path: Path, monkeypatch):
     cache = tmp_path / "cache"
     monkeypatch.setattr(deps, "dumper_cache_dir", lambda: cache)
