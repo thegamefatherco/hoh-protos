@@ -15,6 +15,7 @@ from xapk_to_proto import (
     deps,
     emit,
     extract,
+    game_api,
     gamedesign,
     gamedesign_constants,
     loca,
@@ -35,6 +36,7 @@ _SUBCOMMANDS = frozenset(
         "loca",
         "wirefix",
         "download-xapk",
+        "download-fixtures",
         "download-assets",
         "unpack-assets",
         "link-assets",
@@ -494,6 +496,82 @@ def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("-v", "--verbose", action="store_true")
 
 
+def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "download-fixtures",
+        help="Download startup/gamedesign/loca fixtures from InnoGames",
+        description=(
+            "Log into Heroes of History, open a browser play session, and save "
+            "raw protobuf responses (startup, gamedesign, loca-compressed) under "
+            "fixtures/{world}/{clientVersion}/. Talks only to InnoGames hosts; "
+            "nothing is uploaded."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Credentials: --username/--password, or env HOH_USERNAME/HOH_PASSWORD "
+            "(env overwrites flags). Optional HOH_WORLD / HOH_LOCALE likewise "
+            "overwrite --world / --locale.\n\n"
+            "Examples:\n"
+            "  hoh-protos download-fixtures --username USER --password PASS\n"
+            "  hoh-protos download-fixtures --only gamedesign,loca -o ./fixtures\n"
+            "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
+        ),
+    )
+    p.add_argument(
+        "--username",
+        default=None,
+        help=f"Game username (overwritten by {game_api.ENV_USERNAME})",
+    )
+    p.add_argument(
+        "--password",
+        default=None,
+        help=f"Game password (overwritten by {game_api.ENV_PASSWORD})",
+    )
+    p.add_argument(
+        "--world",
+        default=game_api.DEFAULT_WORLD,
+        help=(
+            f"Fixture world key (default: {game_api.DEFAULT_WORLD}; "
+            f"known: {', '.join(game_api.KNOWN_WORLDS)}; "
+            f"overwritten by {game_api.ENV_WORLD})"
+        ),
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=game_api.DEFAULT_OUTPUT,
+        help=(
+            "Fixtures root directory; files go under "
+            "{output}/{world}/{clientVersion}/ "
+            f"(default: {game_api.DEFAULT_OUTPUT})"
+        ),
+    )
+    p.add_argument(
+        "--only",
+        default=None,
+        metavar="LIST",
+        help=(
+            "Comma-separated fixtures to download: startup, gamedesign, loca "
+            "(default: all three)"
+        ),
+    )
+    p.add_argument(
+        "--locale",
+        default=game_api.DEFAULT_LOCALE,
+        help=(
+            f"Locale for the loca request (default: {game_api.DEFAULT_LOCALE}; "
+            f"overwritten by {game_api.ENV_LOCALE})"
+        ),
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download even if the destination file already exists",
+    )
+    p.add_argument("-v", "--verbose", action="store_true")
+
+
 def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "download-assets",
@@ -755,6 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_definitions_parser(sub)
     _add_loca_parser(sub)
     _add_download_xapk_parser(sub)
+    _add_download_fixtures_parser(sub)
     _add_download_assets_parser(sub)
     _add_unpack_assets_parser(sub)
     _add_link_assets_parser(sub)
@@ -921,6 +1000,31 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(f"{dl.release.package} {dl.release.version}: {dl.size} bytes")
         print(f"wrote {dl.path}")
+        return 0
+
+    if args.command == "download-fixtures":
+        try:
+            result = game_api.download_fixtures(
+                username=args.username,
+                password=args.password,
+                world=args.world,
+                output=args.output,
+                only=args.only,
+                locale=args.locale,
+                force=args.force,
+                verbose=args.verbose,
+            )
+        except (RuntimeError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(
+            f"world {result.session.world.key} "
+            f"clientVersion {result.session.client_version}"
+        )
+        print(f"out {result.out_dir}")
+        for item in result.files:
+            status = "skipped" if item.skipped else "wrote"
+            print(f"  {status} {item.name}: {item.path} ({item.size} bytes)")
         return 0
 
     if args.command == "download-assets":

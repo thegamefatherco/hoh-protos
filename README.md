@@ -114,6 +114,7 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 | --- | --- |
 | `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
 | `hoh-protos download-xapk [VERSION] -o OUT` | Download the game XAPK from APKPure (latest by default) |
+| `hoh-protos download-fixtures` | Download startup/gamedesign/loca protobuf fixtures from InnoGames |
 | `hoh-protos download-assets --xapk … -o ./assets` | Download Addressables bundles from the CDN |
 | `hoh-protos unpack-assets --xapk … -o ./unpacked` | Extract images from Addressables bundles + build an asset index |
 | `hoh-protos link-assets --index … --definitions … -o ./asset_links` | Resolve `asset_id`-style fields to extracted images |
@@ -147,6 +148,23 @@ redirects to the site root. Specific versions therefore require the numeric
 command always scrapes that page before downloading. If APKPure changes its
 markup or starts serving a Cloudflare challenge, the command fails with the URL
 it could not parse.
+
+### Downloading server fixtures
+
+Log into Heroes of History and save raw protobuf responses under
+`fixtures/{world}/{clientVersion}/` (startup, gamedesign, loca-compressed).
+Only InnoGames hosts are contacted; nothing is uploaded elsewhere.
+
+```bash
+hoh-protos download-fixtures --username USER --password PASS
+hoh-protos download-fixtures --only gamedesign,loca -o ./fixtures
+HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v
+```
+
+Credentials: `--username` / `--password`, or env `HOH_USERNAME` / `HOH_PASSWORD`
+(**env overwrites flags** when set). Optional `HOH_WORLD` / `HOH_LOCALE` likewise
+overwrite `--world` / `--locale`. Default world is `un0` (production); `zz0` /
+`zz1` target beta. Existing files are left alone unless you pass `--force`.
 
 ### Downloading asset bundles
 
@@ -404,7 +422,15 @@ Include Python version, OS, the command you ran, and the error text. Redact path
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
+
+## Credits
+
+- [Ingweland](https://github.com/ingweland)
+  - [HoH Helper Mobile](https://github.com/ingweland/hoh-helper-mobile)
+  - [Forge of Games](https://github.com/ingweland/forge-of-games)
+- [Il2CppDumper](https://github.com/Windows81/Il2CppDumper) for the IL2CPP decompiler.
+- [UnityPy](https://github.com/K0lb3/UnityPy) for the Addressables asset unpacker.
 
 ## Disclaimer
 
