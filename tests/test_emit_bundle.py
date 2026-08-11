@@ -11,7 +11,7 @@ from google.protobuf import descriptor_pb2
 from xapk_to_proto.data import load_well_known_fds
 from xapk_to_proto.emit import emit_well_known, run, write_descriptor_bundle
 
-FIXTURE_DESCRIPTORS = Path("output/un0/descriptors.pb")
+from tests.fixture_paths import FIXTURE_DESCRIPTORS
 
 WELL_KNOWN_FILES = (
     "google/protobuf/any.proto",

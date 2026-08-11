@@ -5,6 +5,23 @@ on:
   pull_request:
 
 jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install package + test deps
+        run: uv sync --extra test
+
+      - name: Unit tests
+        run: uv run pytest -m "not acceptance" -q
+
   generate:
     name: generate (${{ matrix.os }}, ${{ matrix.world }}/${{ matrix.version }})
     runs-on: ${{ matrix.os }}
@@ -35,7 +52,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install package
-        run: uv sync
+        run: uv sync --extra test
 
       - name: Setup dependencies
         run: uv run hoh-protos setup
@@ -44,21 +61,24 @@ jobs:
         id: xapk-cache
         uses: actions/cache@v4
         with:
-          path: fixtures/${{ matrix.world }}/${{ matrix.version }}/com.innogames.heroesofhistory_${{ matrix.version }}.xapk
-          key: xapk-${{ matrix.world }}-${{ matrix.version }}-v1
+          path: fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
+          key: xapk-${{ matrix.world }}/${{ matrix.version }}-game-v1
 
       - name: Download XAPK
         if: steps.xapk-cache.outputs.cache-hit != 'true'
         run: >
           uv run hoh-protos download-xapk ${{ matrix.version }}
-          -o fixtures/${{ matrix.world }}/${{ matrix.version }}
+          -o fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
 
       - name: Generate protos
         run: >
           uv run hoh-protos run
-          fixtures/${{ matrix.world }}/${{ matrix.version }}/com.innogames.heroesofhistory_${{ matrix.version }}.xapk
-          -o output/${{ matrix.world }}/${{ matrix.version }}
+          fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
+          --world ${{ matrix.world }}
+          --version ${{ matrix.version }}
           --gamedesign-input fixtures/${{ matrix.world }}/${{ matrix.version }}/gamedesign
-          --wire-fix-input fixtures/${{ matrix.world }}/${{ matrix.version }}/gamedesign
-          --gamedesign
           -v
+
+      - name: Acceptance tests
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run pytest -m acceptance -q

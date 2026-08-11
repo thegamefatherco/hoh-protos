@@ -19,7 +19,7 @@ from xapk_to_proto.gamedesign_constants import (
     write_gamedesign_constants_ts,
 )
 
-FIXTURE_DUMP_CS = Path("output/un0/il2cpp/dump.cs")
+from tests.fixture_paths import FIXTURE_DUMP_CS
 
 SAMPLE_DUMP = """\
 // Namespace: InnoGames.Game.UI

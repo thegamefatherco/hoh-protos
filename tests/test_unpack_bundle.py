@@ -11,7 +11,7 @@ from xapk_to_proto import unpack
 
 pytest.importorskip("UnityPy", reason="requires the assets extra")
 
-XAPK = Path("fixtures/un0/1.48.8.xapk")
+from tests.fixture_paths import FIXTURE_XAPK as XAPK
 
 pytestmark = pytest.mark.skipif(
     not XAPK.is_file(), reason=f"requires the {XAPK} fixture"

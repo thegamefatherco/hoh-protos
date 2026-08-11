@@ -176,6 +176,7 @@ def test_download_fixtures_mocked_flow(tmp_path: Path):
         force=True,
         client=client,
         environ={},
+        download_xapk=False,
     )
 
     assert result.session.client_version == "1.50.3"
@@ -228,8 +229,68 @@ def test_download_fixtures_skips_existing(tmp_path: Path):
         force=False,
         client=client,
         environ={},
+        download_xapk=False,
     )
     assert len(result.files) == 1
     assert result.files[0].skipped is True
     assert result.files[0].path.read_bytes() == b"already"
     assert not any("/game/gamedesign" in url for _, url, _ in client.calls)
+
+
+def test_download_fixtures_includes_game_xapk(tmp_path: Path, monkeypatch):
+    redirect_html = 'const clientVersion = "1.50.3";'
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {"redirectUrl": "https://www.heroesgame.com/play"}
+                ).encode(),
+            ),
+            ("GET", "/play"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-1"}).encode(),
+            ),
+            ("POST", "/game/gamedesign"): (200, {}, b"gd"),
+        }
+    )
+
+    from xapk_to_proto.apkpure import DownloadResult, Release
+
+    def fake_download_xapk(**kwargs):
+        dest = Path(kwargs["output"])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"xapk-bytes")
+        return DownloadResult(
+            release=Release(
+                package="com.innogames.heroesofhistory",
+                version=kwargs["version"],
+                version_code=1,
+                page_url="https://example",
+            ),
+            path=dest,
+            url="https://example/xapk",
+            size=10,
+            skipped=False,
+        )
+
+    monkeypatch.setattr("xapk_to_proto.apkpure.download_xapk", fake_download_xapk)
+
+    result = download_fixtures(
+        username="u",
+        password="p",
+        world="un0",
+        output=tmp_path,
+        only="gamedesign",
+        force=True,
+        client=client,
+        environ={},
+        download_xapk=True,
+    )
+    assert result.xapk is not None
+    assert result.xapk.path == tmp_path / "un0" / "1.50.3" / "game.xapk"
+    assert result.xapk.path.read_bytes() == b"xapk-bytes"
+    assert any(f.name == "game.xapk" for f in result.files)

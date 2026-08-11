@@ -505,6 +505,11 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
         for i, (kind, pos, name) in enumerate(indices):
             if "<>c" in name or name.endswith(".Types"):
                 continue
+            # Protobuf C# nested types always use Parent.Types.Child. Plain
+            # Parent.Child names are ordinary C# nested classes (and can be
+            # false-positive IMessage hits in Il2CppDumper output).
+            if "." in name and ".Types." not in name:
+                continue
             end = indices[i + 1][1] if i + 1 < len(indices) else len(section)
             block = section[pos:end]
             if ".Types." in name:

@@ -516,7 +516,7 @@ def run_gamedesign_export(
         else:
             warnings.append(
                 "No GameDesignResponse blob found in XAPK; "
-                "hero gamedesign is likely server-delivered. "
+                "gamedesign data is likely server-delivered. "
                 "Use --gamedesign-input with a captured cache/API blob."
             )
             if verbose:

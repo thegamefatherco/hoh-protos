@@ -16,12 +16,12 @@ from xapk_to_proto import (
     dumper,
     emit,
     extract,
-    gamedesign,
     gamedesign_constants,
     loca,
     unpack,
     wirefix,
 )
+from xapk_to_proto.paths import resolve_run_paths
 from xapk_to_proto.xapk import discover_il2cpp, extract_xapk, validate_metadata
 
 
@@ -34,11 +34,7 @@ def vlog(msg: str, verbose: bool) -> None:
         print(msg, flush=True)
 
 
-def _resolve_wire_fix_input(
-    args: Namespace,
-    xapk_root: Path,
-    descriptors: Path,
-) -> Path | None:
+def _resolve_wire_fix_input(args: Namespace) -> Path | None:
     explicit = getattr(args, "wire_fix_input", None)
     if explicit is not None:
         path = Path(explicit).resolve()
@@ -49,15 +45,33 @@ def _resolve_wire_fix_input(
         path = Path(gd_input).resolve()
         return path if path.is_file() else None
 
-    if not getattr(args, "gamedesign", False):
-        return None
+    return None
 
-    try:
-        pool, _ = gamedesign.load_descriptor_pool(descriptors)
-        candidates = gamedesign.discover_gamedesign_blobs(xapk_root, pool)
-        return candidates[0] if candidates else None
-    except (FileNotFoundError, ValueError):
+
+def _decode_definitions_blob(
+    *,
+    descriptors: Path,
+    blob: Path,
+    dest: Path,
+    verbose: bool,
+) -> Path | None:
+    if not blob.is_file():
+        print(f"warning: definitions input not found: {blob}", file=sys.stderr)
         return None
+    defs_result = definitions.run_definitions_export(
+        descriptors_pb=descriptors,
+        out_dir=dest,
+        input_path=blob,
+        verbose=verbose,
+    )
+    for warning in defs_result.warnings:
+        print(f"warning [{defs_result.source}]: {warning}", file=sys.stderr)
+    print(
+        f"  definitions[{defs_result.source}]: "
+        f"{defs_result.total_entries} entries -> {dest}",
+        flush=True,
+    )
+    return dest
 
 
 def check_python_deps() -> None:
@@ -93,7 +107,19 @@ def run(args: Namespace) -> int:
         print(f"xapk not found: {xapk}", file=sys.stderr)
         return 1
 
-    output = (args.output or Path(f"{xapk.stem}_protos")).resolve()
+    paths = resolve_run_paths(
+        xapk,
+        world=getattr(args, "world", None),
+        version=getattr(args, "version", None),
+        output=getattr(args, "output", None),
+    )
+    output = paths.output
+    if paths.version is not None:
+        vlog(
+            f"  world={paths.world} version={paths.version} output={output}",
+            args.verbose,
+        )
+
     work_dir = (args.work_dir or output / ".work").resolve()
     il2cpp_out = output / "il2cpp"
     proto_dir = output / "proto"
@@ -139,7 +165,7 @@ def run(args: Namespace) -> int:
         if missing:
             vlog(f"  missing_well_known: {', '.join(missing)}", args.verbose)
 
-        wire_fix_input = _resolve_wire_fix_input(args, xapk_root, descriptors)
+        wire_fix_input = _resolve_wire_fix_input(args)
         if wire_fix_input is not None:
             log("[4b/5] Correcting wire types from sample blob...")
             wf_report = wirefix.run_wirefix(
@@ -167,12 +193,16 @@ def run(args: Namespace) -> int:
 
         summarize(output, proto_dir)
 
-        if getattr(args, "gamedesign_constants", False):
+        definition_dirs: list[Path] = []
+        gd_input = getattr(args, "gamedesign_input", None)
+        want_constants = bool(getattr(args, "gamedesign_constants", False) or gd_input)
+
+        if want_constants:
             gc_out = (
                 getattr(args, "gamedesign_constants_out", None)
                 or output / "gamedesign" / "constants"
             ).resolve()
-            log("[5b/6] Emitting GameDesign string enums...")
+            log("[+] Emitting GameDesign string enums...")
             gc_result = gamedesign_constants.run_gamedesign_constants_export(
                 dump_cs=dump_cs,
                 out_dir=gc_out,
@@ -185,59 +215,53 @@ def run(args: Namespace) -> int:
                 flush=True,
             )
 
-        if getattr(args, "gamedesign", False) or getattr(args, "gamedesign_input", None):
-            gd_out = (args.gamedesign_out or output / "gamedesign").resolve()
-            log("[6/6] Exporting hero gamedesign...")
-            gd_input = (
-                args.gamedesign_input.resolve()
-                if getattr(args, "gamedesign_input", None)
-                else None
-            )
-            result = gamedesign.run_gamedesign_export(
-                descriptors_pb=descriptors,
-                out_dir=gd_out,
-                xapk_root=xapk_root if gd_input is None else None,
-                dump_cs=dump_cs if gd_input is None else None,
-                input_path=gd_input,
+        if gd_input is not None:
+            gd_path = Path(gd_input).resolve()
+            gd_out = (
+                getattr(args, "gamedesign_out", None) or output / "gamedesign"
+            ).resolve()
+            log("[+] Decoding gamedesign definitions...")
+            decoded = _decode_definitions_blob(
+                descriptors=descriptors,
+                blob=gd_path,
+                dest=gd_out,
                 verbose=args.verbose,
             )
-            vlog(
-                f"  source={result.source} hero_entries={result.hero_entries}",
-                args.verbose,
-            )
-            for warning in result.warnings:
-                print(f"warning: {warning}", file=sys.stderr)
-            print(f"  gamedesign: {gd_out / 'manifest.json'}", flush=True)
+            if decoded is not None:
+                definition_dirs.append(decoded)
 
-        definition_dirs: list[Path] = []
+        startup_input = getattr(args, "startup_input", None)
+        if startup_input is not None:
+            startup_path = Path(startup_input).resolve()
+            startup_out = (output / "startup").resolve()
+            log("[+] Decoding startup definitions...")
+            decoded = _decode_definitions_blob(
+                descriptors=descriptors,
+                blob=startup_path,
+                dest=startup_out,
+                verbose=args.verbose,
+            )
+            if decoded is not None:
+                definition_dirs.append(decoded)
+
         defs_inputs = getattr(args, "definitions_input", None)
         if defs_inputs:
-            defs_out = (
-                getattr(args, "definitions_out", None) or output / "definitions"
-            ).resolve()
-            log("[+] Decoding definition blobs...")
+            log("[+] Decoding extra definition blobs...")
             for blob in defs_inputs:
                 blob = Path(blob).resolve()
-                if not blob.is_file():
-                    print(f"warning: definitions input not found: {blob}", file=sys.stderr)
+                dest = (output / blob.stem).resolve()
+                # Avoid clobbering dedicated gamedesign/startup dirs when the
+                # same blob is also passed via --definitions-input.
+                if dest in definition_dirs:
                     continue
-                dest = defs_out / blob.stem
-                definition_dirs.append(dest)
-                defs_result = definitions.run_definitions_export(
-                    descriptors_pb=descriptors,
-                    out_dir=dest,
-                    input_path=blob,
+                decoded = _decode_definitions_blob(
+                    descriptors=descriptors,
+                    blob=blob,
+                    dest=dest,
                     verbose=args.verbose,
                 )
-                for warning in defs_result.warnings:
-                    print(
-                        f"warning [{defs_result.source}]: {warning}", file=sys.stderr
-                    )
-                print(
-                    f"  definitions[{defs_result.source}]: "
-                    f"{defs_result.total_entries} entries -> {dest}",
-                    flush=True,
-                )
+                if decoded is not None:
+                    definition_dirs.append(decoded)
 
         loca_input = getattr(args, "loca_input", None)
         if loca_input is not None:
@@ -315,7 +339,8 @@ def run(args: Namespace) -> int:
             )
             if not definition_dirs:
                 print(
-                    "warning: --link-assets needs --definitions-input; skipped",
+                    "warning: --link-assets needs decoded definitions "
+                    "(--gamedesign-input and/or --startup-input); skipped",
                     file=sys.stderr,
                 )
             elif not Path(index_path).is_file():

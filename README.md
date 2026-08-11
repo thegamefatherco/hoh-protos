@@ -62,27 +62,39 @@ If you already have **dotnet** and **Il2CppDumper** on your machine, you can poi
 
 ```bash
 hoh-protos setup
-hoh-protos download-xapk -o ./fixtures
-hoh-protos "./fixtures/com.innogames.heroesofhistory_1.49.9.xapk" -o ./output
+hoh-protos download-fixtures --username USER --password PASS   # → fixtures/{world}/{version}/
+hoh-protos run fixtures/un0/1.50.3/game.xapk \
+  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
+  --loca-input fixtures/un0/1.50.3/loca-compressed \
+  --startup-input fixtures/un0/1.50.3/startup
+# → output/un0/1.50.3/
 ```
 
-Default output directory is `{xapk_stem}_protos/` next to the XAPK if you omit `-o`.
+Default output is `output/{world}/{version}/` when the version can be inferred from the
+XAPK path (`fixtures/{world}/{version}/game.xapk`) or filename. Override with `-o`,
+`--world`, and `--version` as needed. Worlds: `un0` (production) and `zz0` (beta).
 
-Example layout after a successful run:
+Example layout after a successful run with gamedesign + loca + startup inputs:
 
 ```text
-output/
+output/un0/1.50.3/
 ├── descriptors.pb          # merged FileDescriptorSet (game schemas only)
 ├── descriptors_bundle.pb   # game + Google well-known types (self-contained)
 ├── il2cpp/
 │   └── dump.cs             # Il2CppDumper output
-└── proto/
-    ├── …                   # one .proto per game descriptor file
-    └── google/
-        └── protobuf/       # emitted well-known types (any, timestamp, …)
+├── proto/
+│   ├── …                   # one .proto per game descriptor file
+│   └── google/
+│       └── protobuf/       # emitted well-known types (any, timestamp, …)
+├── gamedesign/             # full per-type JSON + constants/
+├── startup/                # full decode of the startup blob
+└── loca/                   # English catalog
 ```
 
-Use `-v` for step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists, and `--keep-work` to retain the scratch directory under `output/.work`.
+Providing `--gamedesign-input` also runs wirefix (schema repair) and emits
+GameDesign TypeScript constants under `gamedesign/constants/`. Use `-v` for
+step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists, and
+`--keep-work` to retain the scratch directory under `output/.work`.
 
 ### Using with Buf (TypeScript / other languages)
 
@@ -113,25 +125,30 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 | Command | Purpose |
 | --- | --- |
 | `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
-| `hoh-protos download-xapk [VERSION] -o OUT` | Download the game XAPK from APKPure (latest by default) |
-| `hoh-protos download-fixtures` | Download startup/gamedesign/loca protobuf fixtures from InnoGames |
+| `hoh-protos download-fixtures` | Download `game.xapk` + startup/gamedesign/loca under `fixtures/{world}/{version}/` |
+| `hoh-protos download-xapk [VERSION] -o OUT` | Download only the XAPK from APKPure |
+| `hoh-protos run GAME.xapk` | Full pipeline (default output: `output/{world}/{version}/`) |
+| `hoh-protos GAME.xapk` | Shorthand for `run` |
 | `hoh-protos download-assets --xapk … -o ./assets` | Download Addressables bundles from the CDN |
 | `hoh-protos unpack-assets --xapk … -o ./unpacked` | Extract images from Addressables bundles + build an asset index |
 | `hoh-protos link-assets --index … --definitions … -o ./asset_links` | Resolve `asset_id`-style fields to extracted images |
-| `hoh-protos run GAME.xapk -o OUT` | Full pipeline (same as default invocation below) |
-| `hoh-protos GAME.xapk -o OUT` | Shorthand for `run` |
 | `hoh-protos extract --metadata … --dump-cs … --out descriptors.pb` | Build descriptors only |
 | `hoh-protos emit --in descriptors.pb --out-dir ./proto` | Render `.proto` files from an existing descriptor set |
-| `hoh-protos definitions --descriptors descriptors.pb --input BLOB --out-dir ./definitions` | Decode captured server blobs into per-type JSON |
+| `hoh-protos wirefix --descriptors … --input gamedesign` | Correct wire types from a sample blob |
+| `hoh-protos gamedesign` / `definitions` | Decode captured blobs into per-type JSON |
 | `hoh-protos loca --descriptors … --dump-cs … --input loca-compressed --out-dir ./loca` | Decode English loca catalog + display-name maps |
 | `hoh-protos gamedesign-constants --dump-cs … --out-dir ./gamedesign/constants` | Emit GameDesign string ID enums as TypeScript |
 
 ### Downloading the XAPK
 
 ```bash
-hoh-protos download-xapk -o ./fixtures            # latest
-hoh-protos download-xapk 1.49.8 -o ./fixtures     # specific version
+hoh-protos download-xapk -o ./fixtures/un0/1.50.3/game.xapk            # latest → game.xapk
+hoh-protos download-xapk 1.50.3 -o ./fixtures/un0/1.50.3/game.xapk     # specific version
 ```
+
+Prefer `download-fixtures`, which places `game.xapk` next to the server blobs
+under `fixtures/{world}/{clientVersion}/`. Use `download-xapk` when you only need
+the package.
 
 A path ending in `.xapk` is used as the filename; anything else is treated as a
 directory that receives `{package}_{version}.xapk`. Interrupted downloads resume
@@ -151,20 +168,31 @@ it could not parse.
 
 ### Downloading server fixtures
 
-Log into Heroes of History and save raw protobuf responses under
-`fixtures/{world}/{clientVersion}/` (startup, gamedesign, loca-compressed).
-Only InnoGames hosts are contacted; nothing is uploaded elsewhere.
+Log into Heroes of History and save raw protobuf responses plus the matching
+XAPK under `fixtures/{world}/{clientVersion}/`:
+
+```text
+fixtures/un0/1.50.3/
+├── game.xapk
+├── gamedesign
+├── loca-compressed
+└── startup
+```
+
+Only InnoGames / APKPure hosts are contacted; nothing is uploaded elsewhere.
 
 ```bash
 hoh-protos download-fixtures --username USER --password PASS
-hoh-protos download-fixtures --only gamedesign,loca -o ./fixtures
+hoh-protos download-fixtures --world zz0 --only gamedesign,loca
+hoh-protos download-fixtures --skip-xapk   # protobuf blobs only
 HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v
 ```
 
 Credentials: `--username` / `--password`, or env `HOH_USERNAME` / `HOH_PASSWORD`
 (**env overwrites flags** when set). Optional `HOH_WORLD` / `HOH_LOCALE` likewise
 overwrite `--world` / `--locale`. Default world is `un0` (production); `zz0` /
-`zz1` target beta. Existing files are left alone unless you pass `--force`.
+`zz1` target beta (`beta.heroesgame.com` / `zz0`/`zz1` hosts). Existing files are
+left alone unless you pass `--force`.
 
 ### Downloading asset bundles
 
@@ -172,7 +200,7 @@ Bundle names are recovered from the Addressables catalog and fetched from the
 InnoGames CDN:
 
 ```bash
-hoh-protos download-assets --xapk ./fixtures/game.xapk -o ./assets
+hoh-protos download-assets --xapk ./fixtures/un0/1.50.3/game.xapk -o ./assets
 hoh-protos download-assets --catalog ./fixtures/catalog.bin -o ./assets --only cleopatra
 ```
 
@@ -205,7 +233,7 @@ The full pipeline can do this in one pass with `--assets` (output defaults to
 `{output}/assets`), reusing the XAPK it already extracted:
 
 ```bash
-hoh-protos run ./fixtures/game.xapk -o ./output --assets
+hoh-protos run ./fixtures/un0/1.50.3/game.xapk --assets
 ```
 
 ### Unpacking images from asset bundles
@@ -216,8 +244,8 @@ bundles in a 1.48 build, of which only 2 have opaque hash names), so unpacking
 is offline, complete, and unaffected by the CDN hash churn described above.
 
 ```bash
-hoh-protos unpack-assets --xapk ./fixtures/game.xapk -o ./output/unpacked
-hoh-protos unpack-assets --bundles ./output/assets -o ./output/unpacked --only spriteatlas
+hoh-protos unpack-assets --xapk ./fixtures/un0/1.50.3/game.xapk -o ./output/un0/1.50.3/unpacked
+hoh-protos unpack-assets --bundles ./output/un0/1.50.3/assets -o ./output/un0/1.50.3/unpacked --only spriteatlas
 ```
 
 `--xapk` streams bundles straight out of the nested `AddressablesAssetPack.apk`,
@@ -258,17 +286,21 @@ fields matching `asset|icon|sprite|image|portrait|banner|backdrop|…`), so new
 builds pick up new fields without a code change.
 
 ```bash
-hoh-protos definitions --descriptors output/descriptors.pb \
-  --input fixtures/gamedesign --out-dir output/definitions
+hoh-protos run fixtures/un0/1.50.3/game.xapk \
+  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
+  --unpack-assets --link-assets
 
+# or standalone against an existing output tree:
 hoh-protos link-assets \
-  --index output/unpacked/index.json \
-  --descriptors output/descriptors.pb \
-  --definitions output/definitions/gamedesign \
-  -o output/asset_links
+  --index output/un0/1.50.3/unpacked/index.json \
+  --descriptors output/un0/1.50.3/descriptors.pb \
+  --definitions output/un0/1.50.3/gamedesign \
+  -o output/un0/1.50.3/asset_links
 ```
 
-Or in one pipeline run: `--unpack-assets --link-assets --definitions-input …`.
+Or in one pipeline run: `--gamedesign-input … --unpack-assets --link-assets`.
+`--link-assets` uses the decoded `gamedesign/` (and `startup/` if provided)
+automatically — no separate `--definitions-input` required.
 
 This writes `links.json` (per type, per record, per field) and `report.json`
 (hit rates per field plus the most common unresolved values). Every value lands
@@ -292,31 +324,33 @@ Expect `bundle_only` rather than images for `BuildingDefinitionDTO.asset_id`
 icons that are not in the XAPK at all (`icon_chest_alliance_points*`), i.e.
 genuinely remote-only content.
 
-Note that `hoh-protos gamedesign` writes only hero-prefixed types, which drops
-`BuildingDefinitionDTO`, `CityDefinitionDTO`, `RiftDefinitionDTO`,
-`SelectionKitDefinitionDTO`, and `PantheonNodeDefinitionDTO` — all of which
-carry asset fields. Use `hoh-protos definitions` (all types) as the link input.
+`--gamedesign-input` (and the `gamedesign` / `definitions` commands) decode **all**
+types, including buildings, cities, pantheon nodes, and other asset-bearing DTOs.
 
 ### Decoding captured server blobs
 
 Heroes of History delivers most game data as `WrappedResponse` envelopes
 (`communication.proto`) returned by the `startup`, `wakeup`, and `gamedesign`
 endpoints. These contain thousands of `Any`-wrapped DTOs (player state, configs,
-and `*DefinitionDTO` definitions). Point the tool at one or more captured blobs to
-decode every entry into per-type JSON, one output subdirectory per source:
+and `*DefinitionDTO` definitions). Pass the common fixtures as dedicated inputs:
 
 ```bash
-hoh-protos run "/path/to/game.xapk" -o ./output \
-  --definitions-input ./fixtures/startup.raw \
-  --definitions-input ./fixtures/wakeup.raw \
-  --definitions-input ./fixtures/gamedesign
+hoh-protos run fixtures/un0/1.50.3/game.xapk \
+  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
+  --startup-input fixtures/un0/1.50.3/startup \
+  --loca-input fixtures/un0/1.50.3/loca-compressed
 ```
 
-This writes `output/definitions/<source>/<Type>.json` plus a `manifest.json`
-(entry/type counts and any per-type decode warnings) for each blob. The
-`--definitions-input` flag is repeatable, and `--definitions-out` overrides the
-output directory. Use the standalone `hoh-protos definitions` subcommand to
-decode against an existing `descriptors.pb` without re-running the full pipeline.
+This writes:
+
+- `output/un0/1.50.3/gamedesign/` — full per-type JSON + `constants/`
+- `output/un0/1.50.3/startup/` — full decode of the startup blob
+- `output/un0/1.50.3/loca/` — English catalog
+
+For unusual blobs, `--definitions-input` is still available (repeatable) and
+writes under `{output}/{blob-stem}/`. Use the standalone `hoh-protos definitions`
+(or `gamedesign`) subcommand to decode against an existing `descriptors.pb`
+without re-running the full pipeline.
 
 ### English localization (loca)
 
@@ -326,13 +360,13 @@ and decode it with LocaKeys from `dump.cs`:
 
 ```bash
 hoh-protos loca \
-  --descriptors output/descriptors.pb \
-  --dump-cs output/il2cpp/dump.cs \
-  --input fixtures/loca-compressed \
-  --out-dir output/loca
+  --descriptors output/un0/1.50.3/descriptors.pb \
+  --dump-cs output/un0/1.50.3/il2cpp/dump.cs \
+  --input fixtures/un0/1.50.3/loca-compressed \
+  --out-dir output/un0/1.50.3/loca
 ```
 
-Or during the full pipeline: `--loca-input fixtures/loca-compressed`.
+Or during the full pipeline: `--loca-input fixtures/un0/1.50.3/loca-compressed`.
 
 Output:
 
@@ -411,10 +445,15 @@ Contributions are welcome via [GitHub Issues](https://github.com/thegamefatherco
 ### Pull requests
 
 1. Branch from `main` with a focused change (one feature or fix per PR when possible).
-2. Describe what you changed and how you verified it (e.g. `hoh-protos --help`, a smoke run on a test XAPK if you have one).
-3. Do not commit game APKs/XAPKs, extracted IL2CPP binaries, or generated `proto/` trees unless the project explicitly adds fixtures later.
+2. Describe what you changed and how you verified it (e.g. `hoh-protos --help`,
+   `uv run pytest`, a smoke run on a test XAPK if you have one).
+3. Do not commit game APKs/XAPKs, extracted IL2CPP binaries, or generated `proto/`
+   trees unless the project explicitly adds fixtures later.
 
-There is no automated test suite yet; manual CLI checks are the expected verification path.
+Unit tests run with `uv sync --extra test && uv run pytest -m "not acceptance"`.
+Acceptance tests (`pytest -m acceptance`) need local
+`fixtures/{world}/{version}/` and generated `output/{world}/{version}/` artifacts
+and are skipped automatically when those files are missing.
 
 ### Reporting bugs
 

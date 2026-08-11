@@ -52,3 +52,10 @@ only-include = [
   "LICENSE",
   "pyproject.toml",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+  "acceptance: needs local fixtures/output artifacts",
+]

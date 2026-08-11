@@ -23,9 +23,11 @@ from xapk_to_proto.loca import (
     run_loca_export,
 )
 
-FIXTURE_DUMP_CS = Path("output/un0/il2cpp/dump.cs")
-FIXTURE_DESCRIPTORS = Path("output/un0/descriptors.pb")
-FIXTURE_LOCA = Path("fixtures/un0/loca-compressed")
+from tests.fixture_paths import (
+    FIXTURE_DESCRIPTORS,
+    FIXTURE_DUMP_CS,
+    FIXTURE_LOCA,
+)
 
 SAMPLE_DUMP = """\
 // Namespace: 
@@ -58,7 +60,7 @@ public class LocaKeys.Base.HeroClass // TypeDefIndex: 1
 
 
 def test_fnv1a64_matches_known_rarity_key() -> None:
-    # Verified against fixtures/un0/loca-compressed index.
+    # Verified against fixtures/un0/1.50.3/loca-compressed index.
     assert fnv1a64("Base.Rarities.Common") == 0x89878DE289EE15E4
 
 

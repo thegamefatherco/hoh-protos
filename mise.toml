@@ -3,17 +3,19 @@ run = "hoh-protos setup"
 
 [tasks.generate]
 usage = '''
-arg "<xapk_path>" help="Path to the XAPK file" default="./fixtures/game.xapk"
-arg "<output_dir>" help="Output directory" default="./output"
+arg "<xapk_path>" help="Path to the XAPK file" default="./fixtures/un0/1.50.3/game.xapk"
 '''
-run = "hoh-protos run -o {{usage.output_dir}} {{usage.xapk_path}}"
+run = "hoh-protos run {{usage.xapk_path}}"
 
 [tasks.lint]
 usage = '''
-arg "<output_dir>" help="Output directory" default="./output/proto"
+arg "<output_dir>" help="Output directory" default="./output/un0/1.50.3/proto"
 arg "<report_file>" help="Report file" default="./protolint_report.json"
 '''
 run = "protolint lint -output_file={{usage.report_file}} -reporter=json {{usage.output_dir}}"
+
+[tasks.test]
+run = "pytest"
 
 [env]
 _.python.venv = { create = true, path = ".venv" }

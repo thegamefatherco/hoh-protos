@@ -102,6 +102,7 @@ class DownloadFixturesResult:
     session: Session
     out_dir: Path
     files: list[FixtureFileResult] = field(default_factory=list)
+    xapk: FixtureFileResult | None = None
 
 
 def resolve_world(world: str) -> WorldEndpoints:
@@ -413,10 +414,18 @@ def download_fixtures(
     locale: str | None = None,
     force: bool = False,
     verbose: bool = False,
+    download_xapk: bool = True,
     environ: dict[str, str] | None = None,
     client: GameApiClient | None = None,
 ) -> DownloadFixturesResult:
-    """Login, fetch selected fixtures, write them under ``output/{world}/{version}/``."""
+    """Login, fetch selected fixtures, write them under ``output/{world}/{version}/``.
+
+    By default also downloads the matching XAPK from APKPure as ``game.xapk``
+    into the same directory. Pass ``download_xapk=False`` to skip that step.
+    """
+    from xapk_to_proto import apkpure
+    from xapk_to_proto.paths import GAME_XAPK_NAME
+
     user, pwd = resolve_credentials(
         username=username, password=password, environ=environ
     )
@@ -458,4 +467,28 @@ def download_fixtures(
         if verbose:
             print(f"  wrote {dest} ({len(data)} bytes)", file=sys.stderr, flush=True)
 
-    return DownloadFixturesResult(session=session, out_dir=out_dir, files=results)
+    xapk_result: FixtureFileResult | None = None
+    if download_xapk:
+        xapk_dest = out_dir / GAME_XAPK_NAME
+        if verbose:
+            print(f"  downloading XAPK -> {xapk_dest}", flush=True)
+        dl = apkpure.download_xapk(
+            output=xapk_dest,
+            version=session.client_version,
+            force=force,
+            verbose=verbose,
+        )
+        xapk_result = FixtureFileResult(
+            name=GAME_XAPK_NAME,
+            path=dl.path,
+            size=dl.size,
+            skipped=dl.skipped,
+        )
+        results.append(xapk_result)
+
+    return DownloadFixturesResult(
+        session=session,
+        out_dir=out_dir,
+        files=results,
+        xapk=xapk_result,
+    )

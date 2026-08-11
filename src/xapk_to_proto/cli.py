@@ -16,7 +16,6 @@ from xapk_to_proto import (
     emit,
     extract,
     game_api,
-    gamedesign,
     gamedesign_constants,
     loca,
     unpack,
@@ -110,9 +109,15 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Requires Unity IL2CPP + Google.Protobuf. Run `hoh-protos setup` once first.\n\n"
+            "Providing --gamedesign-input decodes full definitions, runs wirefix, and "
+            "emits GameDesign constants. Providing --loca-input / --startup-input "
+            "decodes those blobs into {output}/loca and {output}/startup.\n\n"
             "Examples:\n"
-            '  hoh-protos run "/path/to/game.xapk" -o ./output\n'
-            "  hoh-protos run game.xapk -o ./output --skip-dump -v\n"
+            "  hoh-protos run fixtures/un0/1.50.3/game.xapk --world un0 --version 1.50.3\n"
+            "  hoh-protos run fixtures/un0/1.50.3/game.xapk \\\n"
+            "    --gamedesign-input fixtures/un0/1.50.3/gamedesign \\\n"
+            "    --loca-input fixtures/un0/1.50.3/loca-compressed \\\n"
+            "    --startup-input fixtures/un0/1.50.3/startup\n"
         ),
     )
     p.add_argument("xapk", type=Path, help="Path to .xapk file")
@@ -121,7 +126,26 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--output",
         type=Path,
         default=None,
-        help="Output directory (default: {xapk_stem}_protos/)",
+        help=(
+            "Output directory (default: output/{world}/{version}/ when version "
+            "is known, else {xapk_stem}_protos/)"
+        ),
+    )
+    p.add_argument(
+        "--world",
+        default=game_api.DEFAULT_WORLD,
+        help=(
+            f"Fixture/output world key (default: {game_api.DEFAULT_WORLD}; "
+            f"known: {', '.join(game_api.KNOWN_WORLDS)})"
+        ),
+    )
+    p.add_argument(
+        "--version",
+        default=None,
+        help=(
+            "Client version for default output path. Inferred from "
+            "fixtures/{world}/{version}/… or the XAPK filename when omitted."
+        ),
     )
     p.add_argument(
         "--work-dir",
@@ -141,21 +165,28 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument(
-        "--gamedesign",
-        action="store_true",
-        help="Discover and export hero gamedesign JSON after schema extraction",
-    )
-    p.add_argument(
         "--gamedesign-input",
         type=Path,
         default=None,
-        help="Decode hero gamedesign from a captured GameDesignResponse blob",
+        help=(
+            "GameDesignResponse blob: wirefix + full per-type JSON under "
+            "{output}/gamedesign + TypeScript constants"
+        ),
     )
     p.add_argument(
         "--gamedesign-out",
         type=Path,
         default=None,
         help="Gamedesign output directory (default: {output}/gamedesign)",
+    )
+    p.add_argument(
+        "--startup-input",
+        type=Path,
+        default=None,
+        help=(
+            "WrappedResponse startup blob: decode full definitions under "
+            "{output}/startup"
+        ),
     )
     p.add_argument(
         "--wire-fix-input",
@@ -173,23 +204,17 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         metavar="BLOB",
         help=(
-            "Decode a captured WrappedResponse/GameDesignResponse blob "
-            "(e.g. startup.raw, wakeup.raw, gamedesign) into per-type JSON. "
-            "Repeatable; one output dir per source is created."
+            "Decode an extra WrappedResponse/GameDesignResponse blob into "
+            "{output}/{blob-stem}/. Repeatable. Prefer --gamedesign-input / "
+            "--startup-input for the common fixtures."
         ),
-    )
-    p.add_argument(
-        "--definitions-out",
-        type=Path,
-        default=None,
-        help="Definitions output directory (default: {output}/definitions)",
     )
     p.add_argument(
         "--gamedesign-constants",
         action="store_true",
         help=(
-            "Emit TypeScript string enums from GameDesign *Constants classes "
-            "in dump.cs"
+            "Emit TypeScript string enums from GameDesign *Constants in dump.cs. "
+            "Implied by --gamedesign-input."
         ),
     )
     p.add_argument(
@@ -248,8 +273,9 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--link-assets",
         action="store_true",
         help=(
-            "Resolve asset fields in the decoded definitions against the unpack "
-            "index; requires --definitions-input and --unpack-assets"
+            "Resolve asset fields in decoded definitions against the unpack "
+            "index; uses --gamedesign-input / --startup-input outputs and "
+            "requires --unpack-assets (or --link-assets-index)"
         ),
     )
     p.add_argument(
@@ -269,13 +295,17 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
 def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "gamedesign",
-        help="Decode hero gamedesign JSON from a GameDesignResponse blob",
-        description="Decode GameDesignResponse protobuf data into hero-related JSON files.",
+        help="Decode full gamedesign JSON from a GameDesignResponse blob",
+        description=(
+            "Decode a GameDesignResponse protobuf blob into per-type JSON files. "
+            "Alias of `definitions` for a single gamedesign input."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos gamedesign --descriptors output/descriptors.pb "
-            "--input gd.bin --out-dir output/gamedesign\n"
+            "  hoh-protos gamedesign --descriptors output/un0/1.50.3/descriptors.pb "
+            "--input fixtures/un0/1.50.3/gamedesign "
+            "--out-dir output/un0/1.50.3/gamedesign\n"
         ),
     )
     p.add_argument(
@@ -294,7 +324,7 @@ def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
         "--out-dir",
         type=Path,
         required=True,
-        help="Output directory for manifest.json and heroes/*.json",
+        help="Output directory for per-type JSON and manifest.json",
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -339,8 +369,8 @@ def _add_wirefix_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos wirefix --descriptors output/descriptors.pb "
-            "--input fixtures/un0/gamedesign\n"
+            "  hoh-protos wirefix --descriptors output/un0/1.50.3/descriptors.pb "
+            "--input fixtures/un0/1.50.3/gamedesign\n"
         ),
     )
     p.add_argument(
@@ -410,10 +440,10 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos loca --descriptors output/un0/descriptors.pb "
-            "--dump-cs output/un0/il2cpp/dump.cs "
-            "--input fixtures/un0/loca-compressed "
-            "--out-dir output/un0/loca\n"
+            "  hoh-protos loca --descriptors output/un0/1.50.3/descriptors.pb "
+            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
+            "--input fixtures/un0/1.50.3/loca-compressed "
+            "--out-dir output/un0/1.50.3/loca\n"
         ),
     )
     p.add_argument(
@@ -502,9 +532,9 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         help="Download startup/gamedesign/loca fixtures from InnoGames",
         description=(
             "Log into Heroes of History, open a browser play session, and save "
-            "raw protobuf responses (startup, gamedesign, loca-compressed) under "
-            "fixtures/{world}/{clientVersion}/. Talks only to InnoGames hosts; "
-            "nothing is uploaded."
+            "raw protobuf responses (startup, gamedesign, loca-compressed) plus "
+            "the matching XAPK as game.xapk under fixtures/{world}/{clientVersion}/. "
+            "Talks only to InnoGames / APKPure hosts; nothing is uploaded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -513,7 +543,7 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
             "overwrite --world / --locale.\n\n"
             "Examples:\n"
             "  hoh-protos download-fixtures --username USER --password PASS\n"
-            "  hoh-protos download-fixtures --only gamedesign,loca -o ./fixtures\n"
+            "  hoh-protos download-fixtures --world zz0 --only gamedesign,loca\n"
             "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
         ),
     )
@@ -568,6 +598,11 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         "--force",
         action="store_true",
         help="Re-download even if the destination file already exists",
+    )
+    p.add_argument(
+        "--skip-xapk",
+        action="store_true",
+        help="Do not download game.xapk from APKPure into the fixture folder",
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -891,7 +926,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "gamedesign":
         try:
-            result = gamedesign.run_gamedesign_export(
+            result = definitions.run_definitions_export(
                 descriptors_pb=args.descriptors.resolve(),
                 out_dir=args.out_dir.resolve(),
                 input_path=args.input.resolve(),
@@ -903,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
         for warning in result.warnings:
             print(f"warning: {warning}", file=sys.stderr)
         print(f"source: {result.source}")
-        print(f"hero entries: {result.hero_entries} / {result.total_entries}")
+        print(f"entries: {result.total_entries}")
         print(f"wrote {args.out_dir.resolve() / 'manifest.json'}")
         return 0
 
@@ -1013,6 +1048,7 @@ def main(argv: list[str] | None = None) -> int:
                 locale=args.locale,
                 force=args.force,
                 verbose=args.verbose,
+                download_xapk=not args.skip_xapk,
             )
         except (RuntimeError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)
