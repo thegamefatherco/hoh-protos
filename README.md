@@ -86,7 +86,7 @@ output/un0/1.50.3/
 │       └── protobuf/       # emitted well-known types (any, timestamp, …)
 ├── gamedesign/             # full per-type JSON + constants/
 ├── startup/                # full decode of the startup blob
-└── loca/                   # English catalog
+└── loca/                   # en_DK raw / i18next / ICU / .po catalogs
 ```
 
 Providing `--gamedesign-input` (or the fixture default under `--version`) also
@@ -368,17 +368,37 @@ hoh-protos loca --version 1.50.3
 Or during the full pipeline: `hoh-protos run --version 1.50.3` (auto-wires
 `loca-compressed` when present).
 
-Output:
+Output (flat under `loca/`):
 
-- `en_DK.json` — full key → string[] catalog (e.g. `"Base.Rarities.Common": ["Common"]`)
-- `meta.json` — locale/checksum/version, resolve stats, and `*LocaKey` templates
-- `Rarity.ts` (and similar) — typed display-name maps for flat LocaKeys groups
-- `index.ts` — barrel for the display-name maps
+- `en_DK.json` — raw key → `string[]` catalog (game format). Length-1 is a
+  single form; length-2 is singular/plural. The client picks with
+  `GetText(key, pluralCount)` (English: index 0 when count == 1, else 1).
+- `en_DK.i18next.json` — react-i18next flat strings; plurals as
+  `key_one` / `key_other`; placeholders as `{{0}}` / `{{duration}}`
+  (C# format specs like `:d` / `:s` stripped).
+- `en_DK.icu.json` — ICU MessageFormat; plurals as
+  `{count, plural, one {…} other {…}}`; placeholders as `{0}` / `{duration}`.
+- `en_DK.po` — gettext; `msgctxt` is the loca key; English `nplurals=2`.
+- `meta.json` — locale/checksum/version, resolve stats, exported `formats`,
+  and `*LocaKey` templates
 
-Proto enums map via templates such as `RarityLocaKey = "Base.Rarities.{0}"`:
-`Rarity_COMMON` → `Base.Rarities.Common` → `"Common"`. Gamedesign string IDs like
-`equipment_rarity.2` are a **different** namespace and are not auto-joined to
-`Base.Rarities.*`.
+**Placeholders:** game strings use C# `String.Format`-style `{0}`, `{0:d}`,
+`{1:s}`, and named ability params like `{duration}`. Modern exports strip
+format specs. Duration patterns such as `{0:%d}d {0:hh}h` become `{0}` /
+`{{0}}` — format the value in the consumer. Plural `count` (i18next/ICU) /
+`n` (gettext) selects the form and is **independent** of which `{0}` is
+interpolated (same split as the game’s `pluralCount` vs `parameters`).
+
+**TMP rich text:** tags like `<b>`, `<color=#…>`, `<style=ability_label>`,
+`<sprite name=…>`, `<alpha=#60>` are left as-is. StyleSheets / InlineIcons
+live in the XAPK `UnityDataAssetPack` Resources but are not extracted by
+this tool; resolve or strip them in the consumer.
+
+Proto enum → loca key templates such as `RarityLocaKey = "Base.Rarities.{0}"`
+still live in `meta.json`: `Rarity_COMMON` → `Base.Rarities.Common` →
+`"Common"`. Gamedesign string IDs like `equipment_rarity.2` are a
+**different** namespace and are not auto-joined to `Base.Rarities.*`.
+GameDesign ID enums remain under `gamedesign/constants/*.ts` (unchanged).
 
 Each object in a per-type JSON array is a **ProtoJSON `Any` payload**: a flat
 `@type` URL plus the message fields. Field names use proto **snake_case**

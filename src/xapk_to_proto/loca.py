@@ -25,7 +25,7 @@ from typing import Any
 from google.protobuf import message_factory
 
 from xapk_to_proto.gamedesign import load_descriptor_pool
-from xapk_to_proto.gamedesign_constants import escape_ts_string, unescape_csharp_string
+from xapk_to_proto.gamedesign_constants import unescape_csharp_string
 
 WRAPPED_RESPONSE = "WrappedResponse"
 COMPRESSED_LOCA = "CompressedLocaResponse"
@@ -49,16 +49,10 @@ _TEMPLATE_RE = re.compile(
     re.MULTILINE,
 )
 
-# Proto-style display maps keyed by LocaKeys leaf group → TS export name.
-# value: (export_name, optional key suffix to strip, e.g. "_Name")
-_DISPLAY_MAP_GROUPS: dict[str, tuple[str, str]] = {
-    "Base.Rarities": ("Rarity", ""),
-    "Base.HeroClass": ("HeroClass", ""),
-    "Base.AllianceRoles": ("AllianceRole", "_Name"),
-    "Base.UnitTypes": ("UnitType", "_Name"),
-    "Base.UnitColors": ("UnitColor", ""),
-    "Base.Locales": ("Locale", ""),
-}
+# C# / game placeholders: {0}, {0:d}, {1:s}, {0:%d}, {duration}, …
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+# Positional index with optional alignment and format spec.
+_POSITIONAL_PLACEHOLDER_RE = re.compile(r"^(\d+)(?:,-?\d+)?(?::.*)?$")
 
 
 @dataclass
@@ -306,113 +300,129 @@ def resolve_catalog(
     return dict(sorted(catalog.items())), unresolved
 
 
-def _leaf_display_members(
-    cls: LocaKeysClass,
-    *,
-    key_suffix: str = "",
-) -> list[tuple[LocaKeyConstant, str]]:
-    """Return (const, display_member_name) for flat leaf keys in a LocaKeys group."""
-    group_key = cls.path if cls.path.startswith("Base.") else f"Base.{cls.path}"
-    out: list[tuple[LocaKeyConstant, str]] = []
-    for const in cls.constants:
-        if const.key == group_key:
+def normalize_placeholder_name(inner: str) -> str:
+    """Strip C# alignment/format specs from a placeholder body.
+
+    ``0:d`` / ``0:%d`` / ``1,10:s`` → ``0`` / ``1``; named bodies like
+    ``duration`` are returned unchanged (format after ``:`` stripped if present).
+    """
+    positional = _POSITIONAL_PLACEHOLDER_RE.match(inner)
+    if positional:
+        return positional.group(1)
+    # Named arg with optional format: take name before first unescaped ':'.
+    name_chars: list[str] = []
+    escaped = False
+    for ch in inner:
+        if escaped:
+            name_chars.append(ch)
+            escaped = False
             continue
-        if not const.key.startswith(group_key + "."):
+        if ch == "\\":
+            escaped = True
             continue
-        last = const.key.rsplit(".", 1)[-1]
-        if key_suffix:
-            if not last.endswith(key_suffix):
-                continue
-            leaf = last[: -len(key_suffix)]
-        else:
-            if "_" in last:
-                continue
-            leaf = last
-        if not leaf:
-            continue
-        out.append((const, leaf))
+        if ch == ":":
+            break
+        name_chars.append(ch)
+    return "".join(name_chars) if name_chars else inner
+
+
+def strip_csharp_format_specs(text: str) -> str:
+    """Rewrite ``{0:d}`` / ``{1:s}`` → ``{0}`` / ``{1}``; leave TMP tags alone."""
+
+    def repl(match: re.Match[str]) -> str:
+        return "{" + normalize_placeholder_name(match.group(1)) + "}"
+
+    return _PLACEHOLDER_RE.sub(repl, text)
+
+
+def to_i18next_placeholders(text: str) -> str:
+    """Convert game placeholders to i18next ``{{name}}`` interpolation."""
+
+    def repl(match: re.Match[str]) -> str:
+        return "{{" + normalize_placeholder_name(match.group(1)) + "}}"
+
+    return _PLACEHOLDER_RE.sub(repl, text)
+
+
+def to_icu_placeholders(text: str) -> str:
+    """Convert game placeholders to ICU ``{name}`` (strip C# format specs)."""
+    return strip_csharp_format_specs(text)
+
+
+def to_i18next_catalog(catalog: dict[str, list[str]]) -> dict[str, str]:
+    """Flat react-i18next catalog: singular keys, ``_one``/``_other`` for plurals."""
+    out: dict[str, str] = {}
+    for key, values in catalog.items():
+        if len(values) >= 2:
+            out[f"{key}_one"] = to_i18next_placeholders(values[0])
+            out[f"{key}_other"] = to_i18next_placeholders(values[1])
+        elif values:
+            out[key] = to_i18next_placeholders(values[0])
     return out
 
 
-def _ts_member_name(member: str) -> str:
-    """Convert PascalCase LocaKeys member to UPPER_SNAKE for display maps."""
-    if member.isupper():
-        return member
-    chars: list[str] = []
-    for i, ch in enumerate(member):
-        if ch.isupper() and i > 0 and (
-            member[i - 1].islower()
-            or (i + 1 < len(member) and member[i + 1].islower())
-        ):
-            chars.append("_")
-        chars.append(ch.upper())
-    return "".join(chars)
+def _icu_escape_plural_branch(text: str) -> str:
+    """Escape literal ``'`` for ICU nested in a plural branch; keep ``{args}``."""
+    # ICU uses ASCII apostrophe for escaping. Double apostrophes.
+    return text.replace("'", "''")
 
 
-def render_display_map_ts(
-    export_name: str,
-    entries: list[tuple[str, str]],
-    *,
-    source_group: str,
-) -> str:
-    lines = [
-        "/**",
-        f" * Auto-generated from LocaKeys.{source_group} + English loca.",
-        " * Do not edit by hand.",
-        " */",
-        f"export const {export_name}DisplayName = {{",
-    ]
-    for member, display in entries:
-        lines.append(f'  {member}: "{escape_ts_string(display)}",')
-    lines.append("} as const;")
-    lines.append("")
-    lines.append(
-        f"export type {export_name}DisplayNameKey = "
-        f"keyof typeof {export_name}DisplayName;"
+def to_icu_catalog(catalog: dict[str, list[str]]) -> dict[str, str]:
+    """ICU MessageFormat catalog; plurals use ``{count, plural, one{…} other{…}}``."""
+    out: dict[str, str] = {}
+    for key, values in catalog.items():
+        if len(values) >= 2:
+            one = _icu_escape_plural_branch(to_icu_placeholders(values[0]))
+            other = _icu_escape_plural_branch(to_icu_placeholders(values[1]))
+            out[key] = (
+                "{count, plural, "
+                f"one {{{one}}} "
+                f"other {{{other}}}"
+                "}"
+            )
+        elif values:
+            out[key] = to_icu_placeholders(values[0])
+    return out
+
+
+def _po_escape(text: str) -> str:
+    """Escape a string for a gettext ``msgid`` / ``msgstr`` quoted value."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
     )
-    lines.append("")
-    return "\n".join(lines)
 
 
-def build_display_maps(
-    classes: list[LocaKeysClass],
-    catalog: dict[str, list[str]],
-) -> dict[str, str]:
-    """Return ``{ExportName: ts_source}`` for configured LocaKeys groups."""
-    by_path = {cls.path: cls for cls in classes}
-    files: dict[str, str] = {}
-    for group_path, (export_name, key_suffix) in _DISPLAY_MAP_GROUPS.items():
-        cls = by_path.get(group_path)
-        if cls is None:
-            continue
-        entries: list[tuple[str, str]] = []
-        for const, leaf in _leaf_display_members(cls, key_suffix=key_suffix):
-            values = catalog.get(const.key)
-            if not values:
-                continue
-            entries.append((_ts_member_name(leaf), values[0]))
-        if not entries:
-            continue
-        files[export_name] = render_display_map_ts(
-            export_name, entries, source_group=group_path
-        )
-    return files
-
-
-def render_display_index_ts(export_names: list[str]) -> str:
+def to_gettext_po(catalog: dict[str, list[str]], *, locale: str = "en_DK") -> str:
+    """Build a gettext .po file; ``msgctxt`` holds the loca key."""
     lines = [
-        "/**",
-        " * Auto-generated loca display-name barrel.",
-        " * Do not edit by hand.",
-        " */",
+        'msgid ""',
+        'msgstr ""',
+        f'"Language: {locale}\\n"',
+        '"Content-Type: text/plain; charset=UTF-8\\n"',
+        '"Content-Transfer-Encoding: 8bit\\n"',
+        '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"',
         "",
     ]
-    for name in sorted(export_names):
-        lines.append(
-            f'export {{ {name}DisplayName, type {name}DisplayNameKey }} '
-            f'from "./{name}";'
-        )
-    lines.append("")
+    for key, values in catalog.items():
+        lines.append(f'msgctxt "{_po_escape(key)}"')
+        if len(values) >= 2:
+            one = to_icu_placeholders(values[0])
+            other = to_icu_placeholders(values[1])
+            lines.append(f'msgid "{_po_escape(one)}"')
+            lines.append(f'msgid_plural "{_po_escape(other)}"')
+            lines.append(f'msgstr[0] "{_po_escape(one)}"')
+            lines.append(f'msgstr[1] "{_po_escape(other)}"')
+        elif values:
+            text = to_icu_placeholders(values[0])
+            lines.append(f'msgid "{_po_escape(text)}"')
+            lines.append(f'msgstr "{_po_escape(text)}"')
+        else:
+            continue
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -489,7 +499,6 @@ def write_loca_export(
     *,
     catalog: dict[str, list[str]],
     meta: dict[str, Any],
-    display_maps: dict[str, str],
     templates: dict[str, str],
     warnings: list[str],
 ) -> LocaExportResult:
@@ -498,9 +507,31 @@ def write_loca_export(
 
     locale = meta.get("locale") or "unknown"
     locale_safe = re.sub(r"[^\w.-]+", "_", locale)
+
     catalog_path = out_dir / f"{locale_safe}.json"
     catalog_path.write_text(
         json.dumps(catalog, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    files_written += 1
+
+    i18next_path = out_dir / f"{locale_safe}.i18next.json"
+    i18next_path.write_text(
+        json.dumps(to_i18next_catalog(catalog), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    files_written += 1
+
+    icu_path = out_dir / f"{locale_safe}.icu.json"
+    icu_path.write_text(
+        json.dumps(to_icu_catalog(catalog), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    files_written += 1
+
+    po_path = out_dir / f"{locale_safe}.po"
+    po_path.write_text(
+        to_gettext_po(catalog, locale=locale_safe),
         encoding="utf-8",
     )
     files_written += 1
@@ -512,6 +543,12 @@ def write_loca_export(
         "entry_count": len(catalog),
         "resolved_keys": meta.get("resolved_keys", 0),
         "unresolved_hashes": meta.get("unresolved_hashes", 0),
+        "formats": [
+            f"{locale_safe}.json",
+            f"{locale_safe}.i18next.json",
+            f"{locale_safe}.icu.json",
+            f"{locale_safe}.po",
+        ],
         "templates": templates,
         "warnings": warnings,
     }
@@ -520,17 +557,6 @@ def write_loca_export(
         encoding="utf-8",
     )
     files_written += 1
-
-    for export_name, source in sorted(display_maps.items()):
-        (out_dir / f"{export_name}.ts").write_text(source, encoding="utf-8")
-        files_written += 1
-
-    if display_maps:
-        (out_dir / "index.ts").write_text(
-            render_display_index_ts(list(display_maps.keys())),
-            encoding="utf-8",
-        )
-        files_written += 1
 
     return LocaExportResult(
         locale=locale,
@@ -590,12 +616,10 @@ def run_loca_export(
     meta["resolved_keys"] = resolved
     meta["unresolved_hashes"] = unresolved
 
-    display_maps = build_display_maps(loca_classes, catalog)
     return write_loca_export(
         out_dir,
         catalog=catalog,
         meta=meta,
-        display_maps=display_maps,
         templates=templates,
         warnings=warnings,
     )

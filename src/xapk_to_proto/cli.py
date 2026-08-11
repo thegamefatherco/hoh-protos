@@ -521,11 +521,11 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
 def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "loca",
-        help="Decode CompressedLocaResponse into an English key→string catalog",
+        help="Decode CompressedLocaResponse into English catalogs",
         description=(
             "Decode a captured CompressedLocaResponse (or LocaResponse) blob, "
-            "resolve FNV hashes via LocaKeys in dump.cs, and emit JSON plus "
-            "typed display-name maps (e.g. RarityDisplayName)."
+            "resolve FNV hashes via LocaKeys in dump.cs, and emit raw JSON, "
+            "i18next JSON, ICU MessageFormat JSON, and a gettext .po file."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -564,7 +564,7 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help=(
-            "Output directory for catalog JSON and display-name TS maps "
+            "Output directory for raw/i18next/ICU JSON and gettext .po "
             "(default: output/{world}/{version}/loca)"
         ),
     )
