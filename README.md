@@ -63,16 +63,14 @@ If you already have **dotnet** and **Il2CppDumper** on your machine, you can poi
 ```bash
 hoh-protos setup
 hoh-protos download-fixtures --username USER --password PASS   # → fixtures/{world}/{version}/
-hoh-protos run fixtures/un0/1.50.3/game.xapk \
-  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
-  --loca-input fixtures/un0/1.50.3/loca-compressed \
-  --startup-input fixtures/un0/1.50.3/startup
+hoh-protos run --version 1.50.3
 # → output/un0/1.50.3/
 ```
 
-Default output is `output/{world}/{version}/` when the version can be inferred from the
-XAPK path (`fixtures/{world}/{version}/game.xapk`) or filename. Override with `-o`,
-`--world`, and `--version` as needed. Worlds: `un0` (production) and `zz0` (beta).
+With `--version`, the pipeline uses `fixtures/{world}/{version}/game.xapk` and
+auto-wires `gamedesign`, `loca-compressed`, and `startup` when those files exist.
+Default world is `un0` (override with `--world` or `HOH_WORLD`). Explicit path
+flags still win when you need a custom layout.
 
 Example layout after a successful run with gamedesign + loca + startup inputs:
 
@@ -91,14 +89,15 @@ output/un0/1.50.3/
 └── loca/                   # English catalog
 ```
 
-Providing `--gamedesign-input` also runs wirefix (schema repair) and emits
-GameDesign TypeScript constants under `gamedesign/constants/`. Use `-v` for
-step-by-step logs, `--skip-dump` if `il2cpp/dump.cs` already exists, and
-`--keep-work` to retain the scratch directory under `output/.work`.
+Providing `--gamedesign-input` (or the fixture default under `--version`) also
+runs wirefix (schema repair) and emits GameDesign TypeScript constants under
+`gamedesign/constants/`. Use `-v` for step-by-step logs, `--skip-dump` if
+`il2cpp/dump.cs` already exists, and `--keep-work` to retain the scratch
+directory under `{output}/.work`.
 
 ### Using with Buf (TypeScript / other languages)
 
-Generated `.proto` files use **flat imports** (`import "uuid.proto";`, not a package path prefix). Point Buf’s proto root at the directory that contains those files (for example `output/proto` from this tool, or `protos/` after you copy them).
+Generated `.proto` files use **flat imports** (`import "uuid.proto";`, not a package path prefix). Point Buf’s proto root at the directory that contains those files (for example `output/un0/1.50.3/proto` from this tool, or `protos/` after you copy them).
 
 The emitted `proto/` tree is **self-contained**: Google well-known types ship under `proto/google/protobuf/` (from the bundled `well_known.pb`), so you do not need an external dependency for the imports the game protos actually use.
 
@@ -122,28 +121,32 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair IL2
 
 ## Commands
 
+Most path-taking commands accept `--version` (and optional `--world`) and resolve
+inputs/outputs under `fixtures/{world}/{version}/` and `output/{world}/{version}/`.
+Pass an explicit path flag to override any single default.
+
 | Command | Purpose |
 | --- | --- |
 | `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
 | `hoh-protos download-fixtures` | Download `game.xapk` + startup/gamedesign/loca under `fixtures/{world}/{version}/` |
-| `hoh-protos download-xapk [VERSION] -o OUT` | Download only the XAPK from APKPure |
-| `hoh-protos run GAME.xapk` | Full pipeline (default output: `output/{world}/{version}/`) |
+| `hoh-protos download-xapk [VERSION]` | Download XAPK → `fixtures/{world}/{version}/game.xapk` |
+| `hoh-protos run --version V` | Full pipeline (default output: `output/{world}/{version}/`) |
 | `hoh-protos GAME.xapk` | Shorthand for `run` |
-| `hoh-protos download-assets --xapk … -o ./assets` | Download Addressables bundles from the CDN |
-| `hoh-protos unpack-assets --xapk … -o ./unpacked` | Extract images from Addressables bundles + build an asset index |
-| `hoh-protos link-assets --index … --definitions … -o ./asset_links` | Resolve `asset_id`-style fields to extracted images |
-| `hoh-protos extract --metadata … --dump-cs … --out descriptors.pb` | Build descriptors only |
-| `hoh-protos emit --in descriptors.pb --out-dir ./proto` | Render `.proto` files from an existing descriptor set |
-| `hoh-protos wirefix --descriptors … --input gamedesign` | Correct wire types from a sample blob |
-| `hoh-protos gamedesign` / `definitions` | Decode captured blobs into per-type JSON |
-| `hoh-protos loca --descriptors … --dump-cs … --input loca-compressed --out-dir ./loca` | Decode English loca catalog + display-name maps |
-| `hoh-protos gamedesign-constants --dump-cs … --out-dir ./gamedesign/constants` | Emit GameDesign string ID enums as TypeScript |
+| `hoh-protos download-assets --version V` | Download Addressables bundles → `output/.../assets` |
+| `hoh-protos unpack-assets --version V` | Extract images → `output/.../unpacked` (default source: `.../assets`) |
+| `hoh-protos link-assets --version V` | Resolve `asset_id`-style fields → `output/.../asset_links` |
+| `hoh-protos extract --metadata … --version V` | Build descriptors (`--metadata` still required) |
+| `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` |
+| `hoh-protos wirefix --version V` | Correct wire types from the fixture gamedesign blob |
+| `hoh-protos gamedesign` / `definitions` / `loca` | Decode captured blobs into per-type JSON / loca |
+| `hoh-protos gamedesign-constants --version V` | Emit GameDesign string ID enums as TypeScript |
 
 ### Downloading the XAPK
 
 ```bash
-hoh-protos download-xapk -o ./fixtures/un0/1.50.3/game.xapk            # latest → game.xapk
-hoh-protos download-xapk 1.50.3 -o ./fixtures/un0/1.50.3/game.xapk     # specific version
+hoh-protos download-xapk 1.50.3                    # → fixtures/un0/1.50.3/game.xapk
+hoh-protos download-xapk 1.50.3 --world zz0        # → fixtures/zz0/1.50.3/game.xapk
+hoh-protos download-xapk -o ./custom/game.xapk     # latest → custom path
 ```
 
 Prefer `download-fixtures`, which places `game.xapk` next to the server blobs
@@ -200,9 +203,14 @@ Bundle names are recovered from the Addressables catalog and fetched from the
 InnoGames CDN:
 
 ```bash
-hoh-protos download-assets --xapk ./fixtures/un0/1.50.3/game.xapk -o ./assets
-hoh-protos download-assets --catalog ./fixtures/catalog.bin -o ./assets --only cleopatra
+hoh-protos download-assets --version 1.50.3
+hoh-protos download-assets --version 1.50.3 --only cleopatra
+hoh-protos download-assets --catalog ./catalog.bin -o ./assets --only cleopatra
 ```
+
+With `--version`, the catalog source defaults to `fixtures/{world}/{version}/game.xapk`
+and bundles land in `output/{world}/{version}/assets`. `--xapk` / `--catalog` / `-o`
+override those defaults.
 
 `--xapk` reads `assets/aa/catalog.bin` straight out of the nested
 `AddressablesAssetPack.apk` without unpacking the ~1 GB archive. Bundles already
@@ -233,7 +241,7 @@ The full pipeline can do this in one pass with `--assets` (output defaults to
 `{output}/assets`), reusing the XAPK it already extracted:
 
 ```bash
-hoh-protos run ./fixtures/un0/1.50.3/game.xapk --assets
+hoh-protos run --version 1.50.3 --assets
 ```
 
 ### Unpacking images from asset bundles
@@ -244,9 +252,13 @@ bundles in a 1.48 build, of which only 2 have opaque hash names), so unpacking
 is offline, complete, and unaffected by the CDN hash churn described above.
 
 ```bash
-hoh-protos unpack-assets --xapk ./fixtures/un0/1.50.3/game.xapk -o ./output/un0/1.50.3/unpacked
-hoh-protos unpack-assets --bundles ./output/un0/1.50.3/assets -o ./output/un0/1.50.3/unpacked --only spriteatlas
+hoh-protos unpack-assets --version 1.50.3 --xapk
+hoh-protos unpack-assets --version 1.50.3 --only spriteatlas
 ```
+
+With `--version` alone, the source defaults to `output/{world}/{version}/assets`
+(a prior `download-assets` result) and output to `output/{world}/{version}/unpacked`.
+Pass `--xapk` alone with `--version` to stream from `fixtures/.../game.xapk` instead.
 
 `--xapk` streams bundles straight out of the nested `AddressablesAssetPack.apk`,
 so the ~1 GB archive is never unpacked. `--bundles` reads a directory instead,
@@ -286,19 +298,13 @@ fields matching `asset|icon|sprite|image|portrait|banner|backdrop|…`), so new
 builds pick up new fields without a code change.
 
 ```bash
-hoh-protos run fixtures/un0/1.50.3/game.xapk \
-  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
-  --unpack-assets --link-assets
+hoh-protos run --version 1.50.3 --unpack-assets --link-assets
 
 # or standalone against an existing output tree:
-hoh-protos link-assets \
-  --index output/un0/1.50.3/unpacked/index.json \
-  --descriptors output/un0/1.50.3/descriptors.pb \
-  --definitions output/un0/1.50.3/gamedesign \
-  -o output/un0/1.50.3/asset_links
+hoh-protos link-assets --version 1.50.3
 ```
 
-Or in one pipeline run: `--gamedesign-input … --unpack-assets --link-assets`.
+Or in one pipeline run: `--version … --unpack-assets --link-assets`.
 `--link-assets` uses the decoded `gamedesign/` (and `startup/` if provided)
 automatically — no separate `--definitions-input` required.
 
@@ -335,10 +341,7 @@ endpoints. These contain thousands of `Any`-wrapped DTOs (player state, configs,
 and `*DefinitionDTO` definitions). Pass the common fixtures as dedicated inputs:
 
 ```bash
-hoh-protos run fixtures/un0/1.50.3/game.xapk \
-  --gamedesign-input fixtures/un0/1.50.3/gamedesign \
-  --startup-input fixtures/un0/1.50.3/startup \
-  --loca-input fixtures/un0/1.50.3/loca-compressed
+hoh-protos run --version 1.50.3
 ```
 
 This writes:
@@ -359,14 +362,11 @@ The game’s main English locale is **`en_DK`** (not `en_US`). Capture the
 and decode it with LocaKeys from `dump.cs`:
 
 ```bash
-hoh-protos loca \
-  --descriptors output/un0/1.50.3/descriptors.pb \
-  --dump-cs output/un0/1.50.3/il2cpp/dump.cs \
-  --input fixtures/un0/1.50.3/loca-compressed \
-  --out-dir output/un0/1.50.3/loca
+hoh-protos loca --version 1.50.3
 ```
 
-Or during the full pipeline: `--loca-input fixtures/un0/1.50.3/loca-compressed`.
+Or during the full pipeline: `hoh-protos run --version 1.50.3` (auto-wires
+`loca-compressed` when present).
 
 Output:
 
