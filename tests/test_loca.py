@@ -8,11 +8,16 @@ from pathlib import Path
 import pytest
 
 from xapk_to_proto.loca import (
+    PREFIX_DIR,
+    PREFIX_I18NEXT_DIR,
+    PREFIX_ICU_DIR,
+    UNRESOLVED_PREFIX,
     build_compressed_collection,
     compress_loca_entry,
     decompress_loca_entry,
     encode_loca_values,
     fnv1a64,
+    loca_key_prefix,
     loca_keys_to_hash_map,
     normalize_placeholder_name,
     parse_compressed_collection,
@@ -21,11 +26,13 @@ from xapk_to_proto.loca import (
     parse_loca_values,
     resolve_catalog,
     run_loca_export,
+    split_catalog_by_prefix,
     strip_csharp_format_specs,
     to_gettext_po,
     to_i18next_catalog,
     to_i18next_placeholders,
     to_icu_catalog,
+    write_loca_export,
 )
 
 from tests.fixture_paths import (
@@ -193,6 +200,104 @@ def test_to_icu_catalog() -> None:
     )
 
 
+def test_loca_key_prefix() -> None:
+    assert loca_key_prefix("Base.Rarities.Common") == "Base.Rarities"
+    assert loca_key_prefix("Base.Abilities.hero_battle_ability.Abacus_Name") == (
+        "Base.Abilities"
+    )
+    assert loca_key_prefix("0x000000000000dead") == UNRESOLVED_PREFIX
+    assert loca_key_prefix("lonely") == UNRESOLVED_PREFIX
+
+
+def test_split_catalog_by_prefix() -> None:
+    catalog = {
+        **SAMPLE_CATALOG,
+        "0x000000000000dead": ["orphan"],
+        "lonely": ["no dots"],
+    }
+    buckets = split_catalog_by_prefix(catalog)
+    assert list(buckets) == [
+        "Base.Abilities",
+        "Base.AllianceQuarterPanel",
+        "Base.QuestlinesPanel",
+        "Base.Rarities",
+        UNRESOLVED_PREFIX,
+    ]
+    assert buckets["Base.Rarities"] == {"Base.Rarities.Common": ["Common"]}
+    assert buckets[UNRESOLVED_PREFIX] == {
+        "0x000000000000dead": ["orphan"],
+        "lonely": ["no dots"],
+    }
+
+
+def test_write_loca_export_splits_by_prefix(tmp_path: Path) -> None:
+    catalog = {
+        **SAMPLE_CATALOG,
+        "0x000000000000dead": ["orphan"],
+    }
+    result = write_loca_export(
+        tmp_path,
+        catalog=catalog,
+        meta={"locale": "en_DK", "checksum": "x", "version": "v1"},
+        templates={"RarityLocaKey": "Base.Rarities.{0}"},
+        warnings=[],
+    )
+    prefix_count = 5  # four Base.* groups + _unresolved
+    assert result.files_written == 5 + 3 * prefix_count
+
+    rarities = json.loads(
+        (tmp_path / PREFIX_DIR / "Base.Rarities.json").read_text(encoding="utf-8")
+    )
+    assert rarities == {"Base.Rarities.Common": ["Common"]}
+
+    i18next = json.loads(
+        (
+            tmp_path / PREFIX_DIR / PREFIX_I18NEXT_DIR / "Base.Rarities.i18next.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert i18next["Base.Rarities.Common"] == "Common"
+
+    icu = json.loads(
+        (tmp_path / PREFIX_DIR / PREFIX_ICU_DIR / "Base.Rarities.icu.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert icu["Base.Rarities.Common"] == "Common"
+
+    unresolved = json.loads(
+        (tmp_path / PREFIX_DIR / f"{UNRESOLVED_PREFIX}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert unresolved == {"0x000000000000dead": ["orphan"]}
+    assert not list((tmp_path / PREFIX_DIR).glob("*.i18next.json"))
+    assert not list((tmp_path / PREFIX_DIR).glob("*.icu.json"))
+    assert not list((tmp_path / PREFIX_DIR).glob("*.po"))
+
+    meta = json.loads((tmp_path / "meta.json").read_text(encoding="utf-8"))
+    assert meta["prefix_dir"] == PREFIX_DIR
+    assert meta["prefixes"]["Base.Rarities"] == {
+        "entry_count": 1,
+        "file": "by_prefix/Base.Rarities.json",
+    }
+    assert meta["prefixes"][UNRESOLVED_PREFIX]["entry_count"] == 1
+
+
+def test_write_loca_export_wipes_stale_prefix_files(tmp_path: Path) -> None:
+    stale = tmp_path / PREFIX_DIR / "Stale.Group.json"
+    stale.parent.mkdir()
+    stale.write_text("{}", encoding="utf-8")
+    write_loca_export(
+        tmp_path,
+        catalog={"Base.Rarities.Common": ["Common"]},
+        meta={"locale": "en_DK"},
+        templates={},
+        warnings=[],
+    )
+    assert not stale.exists()
+    assert (tmp_path / PREFIX_DIR / "Base.Rarities.json").is_file()
+
+
 def test_to_gettext_po() -> None:
     po = to_gettext_po(SAMPLE_CATALOG, locale="en_DK")
     assert 'msgctxt "Base.Rarities.Common"' in po
@@ -223,7 +328,7 @@ def test_golden_fixture_multi_format_export(tmp_path: Path) -> None:
     assert result.locale == "en_DK"
     assert result.entry_count > 10_000
     assert result.resolved_keys > 9_000
-    assert result.files_written == 5
+    assert result.files_written >= 5
 
     catalog = json.loads((out / "en_DK.json").read_text(encoding="utf-8"))
     assert catalog["Base.Rarities.Common"] == ["Common"]
@@ -250,5 +355,21 @@ def test_golden_fixture_multi_format_export(tmp_path: Path) -> None:
         "en_DK.icu.json",
         "en_DK.po",
     ]
+    assert meta["prefix_dir"] == PREFIX_DIR
+    assert meta["prefixes"]["Base.Rarities"]["file"] == (
+        "by_prefix/Base.Rarities.json"
+    )
+    assert meta["prefixes"]["Base.Rarities"]["entry_count"] > 0
+    assert result.files_written == 5 + 3 * len(meta["prefixes"])
+
+    rarities_i18next = json.loads(
+        (out / PREFIX_DIR / PREFIX_I18NEXT_DIR / "Base.Rarities.i18next.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert rarities_i18next["Base.Rarities.Common"] == "Common"
+    assert (out / PREFIX_DIR / PREFIX_ICU_DIR / "Base.Rarities.icu.json").is_file()
+    assert not list((out / PREFIX_DIR).glob("*.i18next.json"))
+    assert not list((out / PREFIX_DIR).glob("*.icu.json"))
 
     assert not list(out.glob("*.ts"))

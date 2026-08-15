@@ -89,7 +89,7 @@ output/un0/1.50.3/
 │       └── protobuf/       # emitted well-known types (any, timestamp, …)
 ├── gamedesign/             # full per-type JSON + constants/
 ├── startup/                # full decode of the startup blob
-└── loca/                   # en_DK raw / i18next / ICU / .po catalogs
+└── loca/                   # en_DK catalogs + by_prefix/ splits
 ```
 
 Providing `--gamedesign-input` (or the fixture default under `--version`) also
@@ -380,7 +380,21 @@ Output (flat under `loca/`):
   `{count, plural, one {…} other {…}}`; placeholders as `{0}` / `{duration}`.
 - `en_DK.po` — gettext; `msgctxt` is the loca key; English `nplurals=2`.
 - `meta.json` — locale/checksum/version, resolve stats, exported `formats`,
-  and `*LocaKey` templates
+  `prefixes` index, and `*LocaKey` templates
+- `by_prefix/{Prefix}.json` — raw catalog split on the first two dotted
+  segments (`Base.Rarities`, `Base.Buildings`, …). i18next and ICU copies
+  live in `by_prefix/i18next/` and `by_prefix/icu/` (filenames keep the
+  suffix). Keys stay fully dotted. Unresolved hashes land in `_unresolved`.
+  Use these for lazy `import()` so React does not parse the full ~1.6 MB
+  catalog:
+
+```ts
+const rarities = await import(
+  "./loca/by_prefix/i18next/Base.Rarities.i18next.json"
+);
+i18n.addResourceBundle("en", "translation", rarities.default, true, true);
+t("Base.Rarities.Common");
+```
 
 **Placeholders:** game strings use C# `String.Format`-style `{0}`, `{0:d}`,
 `{1:s}`, and named ability params like `{duration}`. Modern exports strip

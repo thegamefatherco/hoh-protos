@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import struct
 import zlib
 from dataclasses import dataclass, field
@@ -30,6 +31,12 @@ from xapk_to_proto.gamedesign_constants import unescape_csharp_string
 WRAPPED_RESPONSE = "WrappedResponse"
 COMPRESSED_LOCA = "CompressedLocaResponse"
 LOCA_RESPONSE = "LocaResponse"
+
+PREFIX_DIR = "by_prefix"
+PREFIX_I18NEXT_DIR = "i18next"
+PREFIX_ICU_DIR = "icu"
+UNRESOLVED_PREFIX = "_unresolved"
+PREFIX_DEPTH = 2
 
 FNV_OFFSET = 14695981039346656037
 FNV_PRIME = 1099511628211
@@ -396,6 +403,77 @@ def _po_escape(text: str) -> str:
     )
 
 
+def loca_key_prefix(key: str, *, depth: int = PREFIX_DEPTH) -> str:
+    """Return the LocaKeys class path (first ``depth`` dotted segments).
+
+    Unresolved hashes (``0x…``) and keys with fewer than ``depth`` segments
+    land in ``_unresolved``.
+    """
+    if key.startswith("0x"):
+        return UNRESOLVED_PREFIX
+    parts = key.split(".")
+    if len(parts) < depth:
+        return UNRESOLVED_PREFIX
+    return ".".join(parts[:depth])
+
+
+def split_catalog_by_prefix(
+    catalog: dict[str, list[str]],
+    *,
+    depth: int = PREFIX_DEPTH,
+) -> dict[str, dict[str, list[str]]]:
+    """Group catalog entries by ``loca_key_prefix``. Prefixes are sorted."""
+    buckets: dict[str, dict[str, list[str]]] = {}
+    for key, values in catalog.items():
+        buckets.setdefault(loca_key_prefix(key, depth=depth), {})[key] = values
+    return dict(sorted(buckets.items()))
+
+
+def _safe_prefix_filename(prefix: str) -> str:
+    return re.sub(r"[^\w.-]+", "_", prefix)
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _reset_prefix_dir(out_dir: Path) -> Path:
+    prefix_dir = out_dir / PREFIX_DIR
+    if prefix_dir.exists():
+        shutil.rmtree(prefix_dir)
+    prefix_dir.mkdir(parents=True, exist_ok=True)
+    return prefix_dir
+
+
+def _write_prefix_catalogs(
+    prefix_dir: Path,
+    buckets: dict[str, dict[str, list[str]]],
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    i18next_dir = prefix_dir / PREFIX_I18NEXT_DIR
+    icu_dir = prefix_dir / PREFIX_ICU_DIR
+    i18next_dir.mkdir(parents=True, exist_ok=True)
+    icu_dir.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    prefixes: dict[str, dict[str, Any]] = {}
+    for prefix, subset in buckets.items():
+        safe = _safe_prefix_filename(prefix)
+        _write_json(prefix_dir / f"{safe}.json", subset)
+        _write_json(
+            i18next_dir / f"{safe}.i18next.json", to_i18next_catalog(subset)
+        )
+        _write_json(icu_dir / f"{safe}.icu.json", to_icu_catalog(subset))
+        written += 3
+        prefixes[prefix] = {
+            "entry_count": len(subset),
+            "file": f"{PREFIX_DIR}/{safe}.json",
+        }
+    return written, prefixes
+
+
 def to_gettext_po(catalog: dict[str, list[str]], *, locale: str = "en_DK") -> str:
     """Build a gettext .po file; ``msgctxt`` holds the loca key."""
     lines = [
@@ -508,33 +586,24 @@ def write_loca_export(
     locale = meta.get("locale") or "unknown"
     locale_safe = re.sub(r"[^\w.-]+", "_", locale)
 
-    catalog_path = out_dir / f"{locale_safe}.json"
-    catalog_path.write_text(
-        json.dumps(catalog, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(out_dir / f"{locale_safe}.json", catalog)
+    files_written += 1
+    _write_json(out_dir / f"{locale_safe}.i18next.json", to_i18next_catalog(catalog))
+    files_written += 1
+    _write_json(out_dir / f"{locale_safe}.icu.json", to_icu_catalog(catalog))
     files_written += 1
 
-    i18next_path = out_dir / f"{locale_safe}.i18next.json"
-    i18next_path.write_text(
-        json.dumps(to_i18next_catalog(catalog), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    files_written += 1
-
-    icu_path = out_dir / f"{locale_safe}.icu.json"
-    icu_path.write_text(
-        json.dumps(to_icu_catalog(catalog), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    files_written += 1
-
-    po_path = out_dir / f"{locale_safe}.po"
-    po_path.write_text(
+    (out_dir / f"{locale_safe}.po").write_text(
         to_gettext_po(catalog, locale=locale_safe),
         encoding="utf-8",
     )
     files_written += 1
+
+    prefix_dir = _reset_prefix_dir(out_dir)
+    prefix_written, prefixes = _write_prefix_catalogs(
+        prefix_dir, split_catalog_by_prefix(catalog)
+    )
+    files_written += prefix_written
 
     meta_out = {
         "locale": meta.get("locale", ""),
@@ -549,13 +618,12 @@ def write_loca_export(
             f"{locale_safe}.icu.json",
             f"{locale_safe}.po",
         ],
+        "prefix_dir": PREFIX_DIR,
+        "prefixes": prefixes,
         "templates": templates,
         "warnings": warnings,
     }
-    (out_dir / "meta.json").write_text(
-        json.dumps(meta_out, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(out_dir / "meta.json", meta_out)
     files_written += 1
 
     return LocaExportResult(
