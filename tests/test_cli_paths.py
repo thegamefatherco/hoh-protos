@@ -93,8 +93,9 @@ def test_unpack_assets_xapk_layout_default(tmp_path: Path, monkeypatch):
 def test_download_xapk_defaults_to_fixture_path(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(ENV_WORLD, raising=False)
-    args = build_parser().parse_args(["download-xapk", "1.50.3"])
-    _resolve_download_xapk_args(args)
+    args = build_parser().parse_args(["download-xapk", "--version", "1.50.3"])
+    err = _resolve_download_xapk_args(args)
+    assert err is None
     assert args.output == (
         tmp_path / "fixtures" / "un0" / "1.50.3" / "game.xapk"
     ).resolve()
@@ -104,12 +105,21 @@ def test_download_xapk_world_flag(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(ENV_WORLD, raising=False)
     args = build_parser().parse_args(
-        ["download-xapk", "1.50.3", "--world", "zz0"]
+        ["download-xapk", "--version", "1.50.3", "--world", "zz0"]
     )
-    _resolve_download_xapk_args(args)
+    err = _resolve_download_xapk_args(args)
+    assert err is None
     assert args.output == (
         tmp_path / "fixtures" / "zz0" / "1.50.3" / "game.xapk"
     ).resolve()
+
+
+def test_download_xapk_requires_version_or_output(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["download-xapk"])
+    err = _resolve_download_xapk_args(args)
+    assert err is not None
+    assert "--output" in err
 
 
 def test_run_version_fills_xapk_and_fixture_inputs(tmp_path: Path, monkeypatch):

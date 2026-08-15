@@ -158,8 +158,11 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
 def _add_setup_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "setup",
-        help="Download dotnet runtime and Il2CppDumper into user cache",
-        description="Install external dependencies (dotnet + Il2CppDumper).",
+        help="Download dotnet, Il2CppDumper, and apkeep into user cache",
+        description=(
+            "Install external dependencies (dotnet + Il2CppDumper; apkeep on "
+            "Linux/Windows). On macOS install apkeep with: brew install apkeep"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=("Examples:\n  hoh-protos setup\n  hoh-protos setup --force\n"),
     )
@@ -574,32 +577,26 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
 def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "download-xapk",
-        help="Download the game XAPK from APKPure (latest or a specific version)",
+        help="Download the game XAPK from APKPure via apkeep (latest or a specific version)",
         description=(
-            "Resolve a release on APKPure and download its XAPK. Partial downloads "
-            "resume automatically."
+            "Download an XAPK from APKPure using the apkeep CLI "
+            "(https://github.com/EFForg/apkeep). On macOS install with "
+            "`brew install apkeep`; on Linux/Windows, `hoh-protos setup` caches "
+            "a release binary. With --version and no -o, writes "
+            "fixtures/{world}/{version}/game.xapk. An existing destination is "
+            "left alone unless you pass --force."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos download-xapk 1.50.3\n"
-            "  hoh-protos download-xapk 1.50.3 --world zz0\n"
+            "  hoh-protos download-xapk --version 1.50.3\n"
+            "  hoh-protos download-xapk --version 1.50.3 --world zz0\n"
             "  hoh-protos download-xapk -o ./custom/game.xapk\n"
         ),
     )
-    p.add_argument(
-        "version",
-        nargs="?",
-        default=None,
-        help="Version name to download (default: latest)",
-    )
-    p.add_argument(
-        "--world",
-        default=None,
-        help=(
-            f"Fixture world key for default -o path "
-            f"(default: {game_api.DEFAULT_WORLD} or ${game_api.ENV_WORLD})"
-        ),
+    _add_world_version_args(
+        p,
+        version_required_hint="required unless -o is given",
     )
     p.add_argument(
         "-o",
@@ -609,7 +606,7 @@ def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
         help=(
             "Output path. A *.xapk path is used as the filename; anything else "
             "is a directory that receives {package}_{version}.xapk. "
-            "With a version and no -o: fixtures/{world}/{version}/game.xapk"
+            "With --version and no -o: fixtures/{world}/{version}/game.xapk"
         ),
     )
     p.add_argument(
@@ -995,7 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Run `hoh-protos setup` once before the main pipeline.\n\n"
             "Examples:\n"
             "  hoh-protos setup\n"
-            "  hoh-protos download-xapk 1.50.3\n"
+            "  hoh-protos download-xapk --version 1.50.3\n"
             "  hoh-protos run --version 1.50.3\n"
             "  hoh-protos download-assets --version 1.50.3\n"
         ),
@@ -1179,10 +1176,13 @@ def _resolve_loca_args(args: argparse.Namespace) -> str | None:
     return None
 
 
-def _resolve_download_xapk_args(args: argparse.Namespace) -> None:
+def _resolve_download_xapk_args(args: argparse.Namespace) -> str | None:
     if args.output is None and args.version:
         layout = version_layout(args.version, world=args.world)
         args.output = layout.xapk
+    if args.output is None:
+        return _err_need_version_or_paths("--output")
+    return None
 
 
 def _resolve_download_assets_args(args: argparse.Namespace) -> str | None:
@@ -1417,7 +1417,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "download-xapk":
-        _resolve_download_xapk_args(args)
+        err = _resolve_download_xapk_args(args)
+        if err:
+            print(err, file=sys.stderr)
+            return 1
         try:
             dl = apkpure.download_xapk(
                 output=args.output,

@@ -132,3 +132,55 @@ def test_failure_message_highlights_unsupported_version():
     assert "metadata version 39" in msg
     assert "setup --force" in msg
     assert "Cannot read keys" not in msg
+
+
+def test_apkeep_url_linux_x86_64(monkeypatch):
+    monkeypatch.setattr(deps.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(deps.platform, "machine", lambda: "x86_64")
+    assert deps.apkeep_url() == (
+        "https://github.com/EFForg/apkeep/releases/download/1.0.0/"
+        "apkeep-x86_64-unknown-linux-gnu"
+    )
+
+
+def test_apkeep_release_asset_darwin_is_none(monkeypatch):
+    monkeypatch.setattr(deps.platform, "system", lambda: "Darwin")
+    assert deps.apkeep_release_asset() is None
+
+
+def test_install_apkeep_darwin_uses_path(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(deps.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(deps, "find_apkeep_on_path", lambda: None)
+    monkeypatch.setattr(
+        deps,
+        "resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    assert deps.install_apkeep() is None
+
+    brew = tmp_path / "apkeep"
+    brew.write_text("", encoding="utf-8")
+    monkeypatch.setattr(deps, "find_apkeep_on_path", lambda: str(brew))
+    assert deps.install_apkeep() == str(brew)
+
+
+def test_install_apkeep_linux_downloads(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "apkeep-cache"
+    monkeypatch.setattr(deps, "apkeep_cache_dir", lambda: cache)
+    monkeypatch.setattr(deps.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(deps.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        deps,
+        "resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    def fake_urlretrieve(_url: str, filename: str | Path) -> None:
+        Path(filename).write_bytes(b"#!/bin/sh\n")
+
+    monkeypatch.setattr(deps, "urlretrieve", fake_urlretrieve)
+
+    path = deps.install_apkeep()
+    assert path == str(cache / "apkeep")
+    assert Path(path).is_file()
+    assert Path(path).stat().st_mode & 0o111

@@ -1,9 +1,11 @@
-"""Cache and resolve external dependencies (dotnet, Il2CppDumper)."""
+"""Cache and resolve external dependencies (dotnet, Il2CppDumper, apkeep)."""
 
 from __future__ import annotations
 
 import os
+import platform
 import shutil
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -20,6 +22,10 @@ DEFAULT_DUMPER_ASSET = "Il2CppDumper-CLI-20260329T093452Z_0507132.zip"
 DOTNET_CHANNEL = "9.0"
 DOTNET_INSTALL_URL = "https://dot.net/v1/dotnet-install.sh"
 
+# EFForg/apkeep — no official macOS release assets; use Homebrew there.
+DEFAULT_APKEEP_VERSION = "1.0.0"
+APKEEP_REPO = "EFForg/apkeep"
+
 
 def cache_dir() -> Path:
     return Path(platformdirs.user_cache_dir("hoh-protos"))
@@ -31,6 +37,10 @@ def dotnet_cache_dir() -> Path:
 
 def dumper_cache_dir() -> Path:
     return cache_dir() / "Il2CppDumper"
+
+
+def apkeep_cache_dir() -> Path:
+    return cache_dir() / "apkeep"
 
 
 def dumper_repo() -> str:
@@ -98,6 +108,77 @@ def resolve_dumper_dll() -> Path:
         return dll
 
     raise FileNotFoundError("Il2CppDumper not found. Run: hoh-protos setup")
+
+
+def apkeep_version() -> str:
+    return os.environ.get("XAPK_TO_PROTO_APKEEP_VERSION", DEFAULT_APKEEP_VERSION)
+
+
+def apkeep_release_asset() -> str | None:
+    """GitHub release asset name for this platform, or None on Darwin (use brew)."""
+    system = platform.system()
+    machine = platform.machine().lower()
+
+    if system == "Darwin":
+        return None
+    if system == "Windows":
+        return "apkeep-x86_64-pc-windows-msvc.exe"
+    if system == "Linux":
+        if machine in ("aarch64", "arm64"):
+            return "apkeep-aarch64-unknown-linux-gnu"
+        if machine in ("armv7l", "armv7"):
+            return "apkeep-armv7-unknown-linux-gnueabihf"
+        if machine in ("i386", "i686", "x86"):
+            return "apkeep-i686-unknown-linux-gnu"
+        return "apkeep-x86_64-unknown-linux-gnu"
+    return None
+
+
+def apkeep_url(*, version: str | None = None, asset: str | None = None) -> str:
+    version = version if version is not None else apkeep_version()
+    asset = asset if asset is not None else apkeep_release_asset()
+    if asset is None:
+        raise RuntimeError("no apkeep release asset for this platform (use brew on macOS)")
+    return f"https://github.com/{APKEEP_REPO}/releases/download/{version}/{asset}"
+
+
+def cached_apkeep_path() -> Path:
+    asset = apkeep_release_asset()
+    name = "apkeep.exe" if asset and asset.endswith(".exe") else "apkeep"
+    return apkeep_cache_dir() / name
+
+
+def _apkeep_missing_message() -> str:
+    if platform.system() == "Darwin":
+        return "apkeep not found. Install with: brew install apkeep"
+    return "apkeep not found. Run: hoh-protos setup"
+
+
+def resolve_apkeep() -> str:
+    """Return path to an ``apkeep`` executable.
+
+    Order: ``XAPK_TO_PROTO_APKEEP`` → cached release binary → ``PATH``.
+    """
+    env = os.environ.get("XAPK_TO_PROTO_APKEEP")
+    if env:
+        path = Path(env)
+        if path.is_file():
+            return str(path)
+        raise FileNotFoundError(f"XAPK_TO_PROTO_APKEEP not found: {env}")
+
+    cached = cached_apkeep_path()
+    if cached.is_file():
+        return str(cached)
+
+    exe = shutil.which("apkeep")
+    if exe:
+        return exe
+
+    raise FileNotFoundError(_apkeep_missing_message())
+
+
+def find_apkeep_on_path() -> str | None:
+    return shutil.which("apkeep")
 
 
 def has_netcore_runtime(dotnet_root: Path, major: str = "9") -> bool:
@@ -194,6 +275,47 @@ def install_dumper(*, force: bool = False, verbose: bool = False) -> Path:
     return dll
 
 
+def install_apkeep(*, force: bool = False, verbose: bool = False) -> str | None:
+    """Install or locate ``apkeep``.
+
+    On Darwin there are no official release binaries — resolve from PATH (Homebrew)
+    and return ``None`` when missing (caller should print the brew hint).
+    On Linux/Windows, download the pinned GitHub release asset into the user cache.
+    """
+    if not force:
+        try:
+            return resolve_apkeep()
+        except FileNotFoundError:
+            pass
+
+    if platform.system() == "Darwin":
+        exe = find_apkeep_on_path()
+        if exe:
+            return exe
+        return None
+
+    dest = cached_apkeep_path()
+    if dest.is_file() and not force:
+        return str(dest)
+
+    if force and apkeep_cache_dir().exists():
+        shutil.rmtree(apkeep_cache_dir())
+
+    apkeep_cache_dir().mkdir(parents=True, exist_ok=True)
+    url = apkeep_url()
+    if verbose:
+        print(f"Downloading {url}", flush=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = Path(tmp) / "apkeep-download"
+        urlretrieve(url, raw)
+        shutil.move(str(raw), str(dest))
+
+    dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    if not dest.is_file():
+        raise RuntimeError("apkeep install failed")
+    return str(dest)
+
+
 def setup(*, force: bool = False, verbose: bool = False) -> None:
     print("==> .NET runtime", flush=True)
     dotnet_bin = install_dotnet(force=force, verbose=verbose)
@@ -202,6 +324,13 @@ def setup(*, force: bool = False, verbose: bool = False) -> None:
     print("==> Il2CppDumper", flush=True)
     dll = install_dumper(force=force, verbose=verbose)
     print(f"  {dll}", flush=True)
+
+    print("==> apkeep", flush=True)
+    apkeep = install_apkeep(force=force, verbose=verbose)
+    if apkeep:
+        print(f"  {apkeep}", flush=True)
+    else:
+        print("  not found — install with: brew install apkeep", flush=True)
 
     print("", flush=True)
     print("Ready. Example:", flush=True)

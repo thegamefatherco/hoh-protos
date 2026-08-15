@@ -7,8 +7,8 @@ The `hoh-protos` CLI unpacks the XAPK, runs a [v39-capable Il2CppDumper fork](ht
 ## Requirements
 
 - **Python** 3.10 or newer
-- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) — `hoh-protos download-xapk` can fetch one
-- Network access the first time you run `hoh-protos setup` (downloads .NET 9 and Il2CppDumper into your user cache)
+- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) — `hoh-protos download-xapk` can fetch one via [apkeep](https://github.com/EFForg/apkeep) (`brew install apkeep` on macOS; Linux/Windows get a cached binary from `hoh-protos setup`)
+- Network access the first time you run `hoh-protos setup` (downloads .NET 9, Il2CppDumper, and on Linux/Windows apkeep into your user cache)
 
 Games that are not IL2CPP or do not use protobuf will fail with a clear error.
 
@@ -44,9 +44,12 @@ pip install 'hoh-protos[assets]'      # or: pip install -e '.[assets]'
 
 ## One-time setup
 
-Download the bundled .NET runtime and Il2CppDumper (cached under your platform user cache directory, typically `~/.cache/hoh-protos` on Linux):
+Download the bundled .NET runtime, Il2CppDumper, and (on Linux/Windows) apkeep
+(cached under your platform user cache directory, typically `~/.cache/hoh-protos`
+on Linux). On macOS, install apkeep separately with Homebrew:
 
 ```bash
+brew install apkeep   # macOS
 hoh-protos setup
 ```
 
@@ -56,7 +59,7 @@ To refresh cached tools (required after upgrading this package when the default 
 hoh-protos setup --force
 ```
 
-If you already have **dotnet** and **Il2CppDumper** on your machine, you can point at them instead of using the cache (see [Environment variables](#environment-variables)).
+If you already have **dotnet**, **Il2CppDumper**, or **apkeep** on your machine, you can point at them instead of using the cache (see [Environment variables](#environment-variables)).
 
 ## Quick start
 
@@ -127,9 +130,9 @@ Pass an explicit path flag to override any single default.
 
 | Command | Purpose |
 | --- | --- |
-| `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
+| `hoh-protos setup` | Install .NET 9 + Il2CppDumper (+ apkeep on Linux/Windows) into the user cache |
 | `hoh-protos download-fixtures` | Download `game.xapk` + startup/gamedesign/loca under `fixtures/{world}/{version}/` |
-| `hoh-protos download-xapk [VERSION]` | Download XAPK → `fixtures/{world}/{version}/game.xapk` |
+| `hoh-protos download-xapk --version V` | Download XAPK → `fixtures/{world}/{version}/game.xapk` |
 | `hoh-protos run --version V` | Full pipeline (default output: `output/{world}/{version}/`) |
 | `hoh-protos GAME.xapk` | Shorthand for `run` |
 | `hoh-protos download-assets --version V` | Download Addressables bundles → `output/.../assets` |
@@ -144,30 +147,27 @@ Pass an explicit path flag to override any single default.
 ### Downloading the XAPK
 
 ```bash
-hoh-protos download-xapk 1.50.3                    # → fixtures/un0/1.50.3/game.xapk
-hoh-protos download-xapk 1.50.3 --world zz0        # → fixtures/zz0/1.50.3/game.xapk
-hoh-protos download-xapk -o ./custom/game.xapk     # latest → custom path
+hoh-protos download-xapk --version 1.50.3                    # → fixtures/un0/1.50.3/game.xapk
+hoh-protos download-xapk --version 1.50.3 --world zz0        # → fixtures/zz0/1.50.3/game.xapk
+hoh-protos download-xapk -o ./custom/game.xapk               # latest → custom path
 ```
 
 Prefer `download-fixtures`, which places `game.xapk` next to the server blobs
 under `fixtures/{world}/{clientVersion}/`. Use `download-xapk` when you only need
 the package.
 
+Downloads go through [apkeep](https://github.com/EFForg/apkeep) (`-d apk-pure`).
+Install it with `brew install apkeep` on macOS, or run `hoh-protos setup` on
+Linux/Windows to cache a release binary. Override the binary with
+`XAPK_TO_PROTO_APKEEP` if needed.
+
 A path ending in `.xapk` is used as the filename; anything else is treated as a
-directory that receives `{package}_{version}.xapk`. Interrupted downloads resume
-from the partial `.xapk.part` file, and an existing destination is left alone
-unless you pass `--force`.
+directory that receives `{package}_{version}.xapk`. An existing destination is
+left alone unless you pass `--force`.
 
-Only the **XAPK** bundle format is available for this package — the plain APK
-endpoint returns HTTP 403. `--abi` selects the native split (default
-`arm64-v8a`, which is what the pipeline's `libil2cpp.so` lookup prefers).
-
-APKPure's `?version=` parameter only accepts `latest`; a real version string
-redirects to the site root. Specific versions therefore require the numeric
-`versionCode`, which is only published inside the HTML download page, so this
-command always scrapes that page before downloading. If APKPure changes its
-markup or starts serving a Cloudflare challenge, the command fails with the URL
-it could not parse.
+Only the **XAPK** bundle format is available for this package. `--abi` selects
+the native split passed to apkeep as `arch=` (default `arm64-v8a`, which is what
+the pipeline's `libil2cpp.so` lookup prefers).
 
 ### Downloading server fixtures
 
@@ -442,6 +442,8 @@ python -m xapk_to_proto --help
 | --- | --- |
 | `XAPK_TO_PROTO_DOTNET` | Path to a `dotnet` executable (skips cached runtime) |
 | `XAPK_TO_PROTO_DUMPER` | Path to `Il2CppDumper.dll` (skips cached dumper) |
+| `XAPK_TO_PROTO_APKEEP` | Path to an `apkeep` executable (skips cached binary / PATH) |
+| `XAPK_TO_PROTO_APKEEP_VERSION` | apkeep GitHub release tag for Linux/Windows setup (default: `1.0.0`) |
 | `IL2CPP_DUMPER_REPO` | GitHub `owner/repo` for the dumper release (default: `Windows81/Il2CppDumper`) |
 | `IL2CPP_DUMPER_VERSION` | Release tag (default: `v20260329T093452Z`) |
 | `IL2CPP_DUMPER_ASSET` | Release zip asset name (default: `Il2CppDumper-CLI-20260329T093452Z_0507132.zip`) |

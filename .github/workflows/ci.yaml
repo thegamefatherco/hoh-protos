@@ -51,6 +51,10 @@ jobs:
       - name: Setup dependencies
         run: uv run hoh-protos setup
 
+      - name: Install apkeep (macOS)
+        if: runner.os == 'macOS'
+        run: brew install apkeep
+
       - name: Restore XAPK cache
         id: xapk-cache
         uses: actions/cache@v4
@@ -61,7 +65,7 @@ jobs:
       - name: Download XAPK
         if: steps.xapk-cache.outputs.cache-hit != 'true'
         run: >
-          uv run hoh-protos download-xapk ${{ matrix.version }}
+          uv run hoh-protos download-xapk --version ${{ matrix.version }}
           -o fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
 
       - name: Generate protos

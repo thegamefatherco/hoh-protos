@@ -420,8 +420,9 @@ def download_fixtures(
 ) -> DownloadFixturesResult:
     """Login, fetch selected fixtures, write them under ``output/{world}/{version}/``.
 
-    By default also downloads the matching XAPK from APKPure as ``game.xapk``
-    into the same directory. Pass ``download_xapk=False`` to skip that step.
+    By default also downloads the matching XAPK from APKPure (via apkeep) as
+    ``game.xapk`` into the same directory. Pass ``download_xapk=False`` to skip
+    that step.
     """
     from xapk_to_proto import apkpure
     from xapk_to_proto.paths import GAME_XAPK_NAME

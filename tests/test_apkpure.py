@@ -1,6 +1,9 @@
-"""Tests for APKPure release resolution and output-path handling (no network)."""
+"""Tests for apkeep-backed XAPK download and output-path handling (no network)."""
 
 from __future__ import annotations
+
+import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -9,70 +12,18 @@ from xapk_to_proto.apkpure import (
     DEFAULT_ABI,
     DEFAULT_PACKAGE,
     Release,
-    download_url,
-    page_url,
+    download_xapk,
     resolve_output_path,
-    resolve_release,
 )
 
-# Trimmed shape of a real download page: the versionCode appears several times
-# and the version name comes from an inline JSON blob.
-SAMPLE_PAGE = """\
-<html><head><title>Download</title></head><body>
-<script>window.__NUXT__={"app":{"version":"1.49.8","package":"x"}}</script>
-<a href="https://d.apkpure.com/b/XAPK/com.innogames.heroesofhistory?versionCode=1049008&amp;nc=arm64-v8a&amp;sv=25">Download</a>
-<a href="https://d.apkpure.com/b/XAPK/com.innogames.heroesofhistory?versionCode=1049008&amp;nc=armeabi-v7a&amp;sv=25">Download v7a</a>
-</body></html>
-"""
 
-CHALLENGE_PAGE = "<html><body>Checking your browser…</body></html>"
+def _release(version: str = "1.49.8") -> Release:
+    return Release(package=DEFAULT_PACKAGE, version=version)
 
 
-def _release(version: str = "1.49.8", code: int = 1049008) -> Release:
-    return Release(
-        package=DEFAULT_PACKAGE,
-        version=version,
-        version_code=code,
-        page_url="https://example.invalid",
-    )
-
-
-def test_page_url_includes_version_only_when_given():
-    assert page_url(DEFAULT_PACKAGE, None).endswith(f"/{DEFAULT_PACKAGE}/download")
-    assert page_url(DEFAULT_PACKAGE, "1.49.8").endswith("/download/1.49.8")
-
-
-def test_download_url_uses_version_code_not_version_name():
-    # ?version=<name> redirects to the site root, so only versionCode is usable.
-    url = download_url(_release(), abi=DEFAULT_ABI)
-    assert "versionCode=1049008" in url
-    assert "version=1.49.8" not in url
-    assert f"nc={DEFAULT_ABI}" in url
-
-
-def test_resolve_release_scrapes_version_and_code(monkeypatch):
-    monkeypatch.setattr(apkpure, "_fetch_text", lambda url: SAMPLE_PAGE)
-    release = resolve_release(version="1.49.8")
-    assert release.version == "1.49.8"
-    assert release.version_code == 1049008
-
-
-def test_resolve_release_latest_reports_resolved_version(monkeypatch):
-    monkeypatch.setattr(apkpure, "_fetch_text", lambda url: SAMPLE_PAGE)
-    release = resolve_release()
-    assert release.version == "1.49.8"
-
-
-def test_resolve_release_rejects_page_without_version_code(monkeypatch):
-    monkeypatch.setattr(apkpure, "_fetch_text", lambda url: CHALLENGE_PAGE)
-    with pytest.raises(RuntimeError, match="no versionCode"):
-        resolve_release(version="0.0.1")
-
-
-def test_resolve_release_picks_most_common_code(monkeypatch):
-    page = SAMPLE_PAGE + "\n<a href='?versionCode=999'>other version</a>"
-    monkeypatch.setattr(apkpure, "_fetch_text", lambda url: page)
-    assert resolve_release().version_code == 1049008
+def _write_minimal_zip(path: Path) -> None:
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("manifest.json", "{}")
 
 
 def test_resolve_output_path_directory_gets_generated_name(tmp_path):
@@ -110,3 +61,140 @@ def test_resolve_output_path_defaults_to_cwd():
     dest = resolve_output_path(None, _release())
     assert dest.name == f"{DEFAULT_PACKAGE}_1.49.8.xapk"
     assert dest.is_absolute()
+
+
+def test_download_xapk_skips_existing(tmp_path, monkeypatch):
+    dest = tmp_path / "game.xapk"
+    dest.write_bytes(b"already")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("apkeep should not run when destination exists")
+
+    monkeypatch.setattr(apkpure.subprocess, "run", boom)
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "/usr/bin/apkeep"
+    )
+
+    result = download_xapk(output=dest, version="1.50.3")
+    assert result.skipped is True
+    assert result.path == dest
+    assert result.size == 7
+
+
+def test_download_xapk_invokes_apkeep_and_renames(tmp_path, monkeypatch, capsys):
+    dest = tmp_path / "game.xapk"
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, check=False):
+        captured["cmd"] = list(cmd)
+        outdir = Path(cmd[-1])
+        produced = outdir / f"{DEFAULT_PACKAGE}@1.50.3.xapk"
+        _write_minimal_zip(produced)
+        return type("Proc", (), {"returncode": 0})()
+
+    monkeypatch.setattr(apkpure.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "/opt/apkeep"
+    )
+
+    result = download_xapk(
+        output=dest,
+        version="1.50.3",
+        abi=DEFAULT_ABI,
+        verbose=False,
+    )
+
+    assert result.skipped is False
+    assert result.path == dest
+    assert dest.is_file()
+    assert zipfile.is_zipfile(dest)
+
+    cmd = captured["cmd"]
+    assert cmd[0] == "/opt/apkeep"
+    assert cmd[1:5] == ["-a", f"{DEFAULT_PACKAGE}@1.50.3", "-d", "apk-pure"]
+    assert cmd[5:7] == ["-o", f"arch={DEFAULT_ABI}"]
+
+    out = capsys.readouterr().out
+    assert f"downloading {DEFAULT_PACKAGE}@1.50.3 -> {dest}" in out
+
+
+def test_download_xapk_latest_omits_version_suffix(tmp_path, monkeypatch):
+    dest = tmp_path / "latest.xapk"
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, check=False):
+        captured["cmd"] = list(cmd)
+        outdir = Path(cmd[-1])
+        _write_minimal_zip(outdir / f"{DEFAULT_PACKAGE}.xapk")
+        return type("Proc", (), {"returncode": 0})()
+
+    monkeypatch.setattr(apkpure.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "apkeep"
+    )
+
+    result = download_xapk(output=dest)
+    assert result.release.version == "latest"
+    assert captured["cmd"][2] == DEFAULT_PACKAGE
+    assert result.path == dest
+
+
+def test_download_xapk_force_replaces_existing(tmp_path, monkeypatch):
+    dest = tmp_path / "game.xapk"
+    dest.write_bytes(b"old")
+
+    def fake_run(cmd, check=False):
+        outdir = Path(cmd[-1])
+        _write_minimal_zip(outdir / f"{DEFAULT_PACKAGE}@1.50.3.xapk")
+        return type("Proc", (), {"returncode": 0})()
+
+    monkeypatch.setattr(apkpure.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "apkeep"
+    )
+
+    result = download_xapk(output=dest, version="1.50.3", force=True)
+    assert result.skipped is False
+    assert dest.read_bytes() != b"old"
+    assert zipfile.is_zipfile(dest)
+
+
+def test_download_xapk_rejects_apk_only(tmp_path, monkeypatch):
+    dest = tmp_path / "game.xapk"
+
+    def fake_run(cmd, check=False):
+        outdir = Path(cmd[-1])
+        (outdir / f"{DEFAULT_PACKAGE}.apk").write_bytes(b"not-xapk")
+        return type("Proc", (), {"returncode": 0})()
+
+    monkeypatch.setattr(apkpure.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "apkeep"
+    )
+
+    with pytest.raises(RuntimeError, match="APK\\(s\\) instead of XAPK"):
+        download_xapk(output=dest, version="1.50.3")
+
+
+def test_download_xapk_missing_apkeep(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("apkeep not found")),
+    )
+    with pytest.raises(RuntimeError, match="apkeep not found"):
+        download_xapk(output=tmp_path / "game.xapk", version="1.50.3")
+
+
+def test_download_xapk_skip_prints_nothing_about_download(tmp_path, monkeypatch, capsys):
+    dest = tmp_path / "game.xapk"
+    dest.write_bytes(b"already")
+    monkeypatch.setattr(
+        "xapk_to_proto.deps.resolve_apkeep", lambda: "/usr/bin/apkeep"
+    )
+    monkeypatch.setattr(
+        apkpure.subprocess,
+        "run",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("no run")),
+    )
+    download_xapk(output=dest, version="1.50.3")
+    assert "downloading" not in capsys.readouterr().out

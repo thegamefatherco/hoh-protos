@@ -268,11 +268,8 @@ def test_download_fixtures_includes_game_xapk(tmp_path: Path, monkeypatch):
             release=Release(
                 package="com.innogames.heroesofhistory",
                 version=kwargs["version"],
-                version_code=1,
-                page_url="https://example",
             ),
             path=dest,
-            url="https://example/xapk",
             size=10,
             skipped=False,
         )
