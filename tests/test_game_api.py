@@ -141,6 +141,31 @@ def test_maybe_gunzip_respects_content_encoding():
     assert game_api._maybe_gunzip(raw, None) == raw
 
 
+def test_game_api_client_closes_httperror(monkeypatch):
+    from urllib.error import HTTPError
+
+    closed: list[bool] = []
+
+    class _Opener:
+        def open(self, req):
+            err = HTTPError("https://x.test/fail", 404, "missing", {}, None)
+            original = err.close
+
+            def close() -> None:
+                closed.append(True)
+                original()
+
+            err.close = close  # type: ignore[method-assign]
+            raise err
+
+    client = GameApiClient.__new__(GameApiClient)
+    client._opener = _Opener()  # type: ignore[attr-defined]
+
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        client.request("GET", "https://x.test/fail")
+    assert closed == [True]
+
+
 def test_download_fixtures_mocked_flow(tmp_path: Path):
     redirect_html = 'const clientVersion = "1.50.3";'
     startup_body = b"\x0a\x05start"

@@ -79,6 +79,16 @@ def test_unpacking_a_prefab_bundle_reports_no_images_without_failing(source, tmp
     assert outcome.records == []
 
 
+def test_font_stub_textures_warn_empty_not_isadirectory(source, tmp_path):
+    name = _first_matching(source, "inconsolata_")
+
+    outcome = unpack.unpack_bundle(source.read(name), name, tmp_path)
+
+    assert not outcome.failed
+    assert not any("IsADirectoryError" in w for w in outcome.warnings)
+    assert any("empty texture" in w for w in outcome.warnings)
+
+
 def test_unpack_all_writes_an_index_that_maps_names_to_files(source, tmp_path):
     name = _first_matching(source, "spriteatlas_iconspantheonnodes")
 

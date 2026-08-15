@@ -31,7 +31,6 @@ USER_AGENT = "Mozilla/5.0"
 
 _START_MARKER = bytes.fromhex("000000")
 _END_MARKER = b".bundle"
-_CHUNK = 1 << 16
 
 # 404 dominates when a catalog is stale: the CDN only keeps bundle hashes for
 # recent builds. Those are permanent, so only transient statuses are retried.
@@ -154,31 +153,36 @@ def _download_one(url: str, dest: Path) -> int:
     try:
         with urlopen(req) as resp:
             expected = resp.headers.get("Content-Length")
-            body = (
-                gzip.GzipFile(fileobj=resp)
-                if resp.headers.get("Content-Encoding") == "gzip"
-                else resp
-            )
-            written = 0
-            with tmp.open("wb") as fh:
-                while chunk := body.read(_CHUNK):
-                    fh.write(chunk)
-                    written += len(chunk)
-            if expected is not None and written != int(expected):
+            raw = resp.read()
+            if expected is not None and len(raw) != int(expected):
                 raise DownloadError(
-                    f"{url}: truncated: {written} of {expected} bytes",
+                    f"{url}: truncated: {len(raw)} of {expected} bytes",
                     retryable=True,
                 )
+            # Decompress off the closed-over body so GzipFile never owns the
+            # live HTTPResponse (close-ordering hits ValueError on 3.14).
+            data = (
+                gzip.decompress(raw)
+                if resp.headers.get("Content-Encoding") == "gzip"
+                else raw
+            )
+            with tmp.open("wb") as fh:
+                fh.write(data)
         tmp.replace(dest)
-        return written
+        return len(data)
     except DownloadError:
         tmp.unlink(missing_ok=True)
         raise
     except HTTPError as e:
-        tmp.unlink(missing_ok=True)
-        raise DownloadError(
-            f"{url}: HTTP {e.code}", retryable=e.code in _RETRYABLE_STATUS
-        ) from e
+        # urlopen raises HTTPError before the with-body; close or GC finalizes
+        # spam "I/O operation on closed file" on Python 3.14 after mass 404s.
+        try:
+            tmp.unlink(missing_ok=True)
+            raise DownloadError(
+                f"{url}: HTTP {e.code}", retryable=e.code in _RETRYABLE_STATUS
+            ) from e
+        finally:
+            e.close()
     except (URLError, OSError) as e:
         tmp.unlink(missing_ok=True)
         raise DownloadError(f"{url}: {e}", retryable=True) from e

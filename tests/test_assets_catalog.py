@@ -374,14 +374,25 @@ def test_download_one_rejects_truncated_body(tmp_path, monkeypatch):
     [(404, False), (403, False), (410, False), (429, True), (503, True), (500, True)],
 )
 def test_download_one_classifies_http_errors(tmp_path, monkeypatch, status, retryable):
+    closed: list[bool] = []
+
     def raise_http(req):
-        raise HTTPError("https://x.test/a.bundle", status, "err", {}, None)
+        err = HTTPError("https://x.test/a.bundle", status, "err", {}, None)
+        original = err.close
+
+        def close() -> None:
+            closed.append(True)
+            original()
+
+        err.close = close  # type: ignore[method-assign]
+        raise err
 
     monkeypatch.setattr(assets, "urlopen", raise_http)
     with pytest.raises(DownloadError) as excinfo:
         assets._download_one("https://x.test/a.bundle", tmp_path / "a.bundle")
     assert excinfo.value.retryable is retryable
     assert f"HTTP {status}" in str(excinfo.value)
+    assert closed == [True]
 
 
 def test_download_one_decompresses_gzip_response(tmp_path, monkeypatch):

@@ -242,13 +242,16 @@ class GameApiClient:
                 resp_headers = {k: v for k, v in resp.headers.items()}
                 return resp.status, resp_headers, body
         except HTTPError as e:
-            err_body = e.read() if e.fp is not None else b""
-            encoding = e.headers.get("Content-Encoding") if e.headers else None
-            err_body = _maybe_gunzip(err_body, encoding)
-            detail = err_body[:500].decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"HTTP {e.code} for {method.upper()} {url}: {detail}"
-            ) from e
+            try:
+                err_body = e.read() if e.fp is not None else b""
+                encoding = e.headers.get("Content-Encoding") if e.headers else None
+                err_body = _maybe_gunzip(err_body, encoding)
+                detail = err_body[:500].decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"HTTP {e.code} for {method.upper()} {url}: {detail}"
+                ) from e
+            finally:
+                e.close()
         except URLError as e:
             raise RuntimeError(f"request failed for {method.upper()} {url}: {e}") from e
 

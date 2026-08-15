@@ -12,6 +12,7 @@ from xapk_to_proto.unpack import (
     assign_filenames,
     build_index,
     bundle_address_prefix,
+    is_empty_texture,
     safe_filename,
     select_bundles,
     select_image_objects,
@@ -168,3 +169,60 @@ def test_load_previous_records_resumes_only_bundles_whose_files_survive(tmp_path
 
 def test_load_previous_records_returns_empty_without_an_index(tmp_path):
     assert unpack._load_previous_records(tmp_path) == {}
+
+
+class _StreamData:
+    def __init__(self, path: str = "", size: int = 0) -> None:
+        self.path = path
+        self.size = size
+
+
+class _FakeTex:
+    def __init__(
+        self,
+        *,
+        width: int = 0,
+        height: int = 0,
+        image_data: bytes = b"",
+        stream: _StreamData | None = None,
+    ) -> None:
+        self.m_Width = width
+        self.m_Height = height
+        self.image_data = image_data
+        self.m_StreamData = stream
+
+
+def test_is_empty_texture_detects_zero_dimensions():
+    assert is_empty_texture(_FakeTex(width=0, height=0))
+    assert is_empty_texture(_FakeTex(width=8, height=0))
+    assert is_empty_texture(_FakeTex(width=0, height=8))
+
+
+def test_is_empty_texture_detects_empty_stream_stub():
+    # TMP Font Texture stubs: non-zero dims optional, but empty data + empty path.
+    assert is_empty_texture(
+        _FakeTex(width=0, height=0, stream=_StreamData(path="", size=0))
+    )
+    assert is_empty_texture(
+        _FakeTex(width=64, height=64, image_data=b"", stream=_StreamData("", 0))
+    )
+    assert is_empty_texture(
+        _FakeTex(width=64, height=64, image_data=b"", stream=_StreamData("a.resS", 0))
+    )
+    assert is_empty_texture(
+        _FakeTex(width=64, height=64, image_data=b"", stream=None)
+    )
+
+
+def test_is_empty_texture_keeps_real_inline_or_streamed_data():
+    assert not is_empty_texture(
+        _FakeTex(width=8, height=8, image_data=b"\x00\x01")
+    )
+    assert not is_empty_texture(
+        _FakeTex(
+            width=8,
+            height=8,
+            image_data=b"",
+            stream=_StreamData("tex.resS", 32),
+        )
+    )

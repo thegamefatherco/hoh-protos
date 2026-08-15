@@ -154,6 +154,26 @@ def select_image_objects(
     return keep
 
 
+def is_empty_texture(tex: object) -> bool:
+    """True for stub Texture2Ds that would make UnityPy chase cwd as a resource.
+
+    TMP font atlases often ship 0x0 Texture2Ds with empty ``image_data`` and an
+    empty ``m_StreamData.path``. UnityPy then calls ``load_file("")`` against
+    ``Environment.path`` (cwd) and raises ``IsADirectoryError``.
+    """
+    if not getattr(tex, "m_Width", 0) or not getattr(tex, "m_Height", 0):
+        return True
+    image_data = getattr(tex, "image_data", None) or b""
+    if image_data:
+        return False
+    sd = getattr(tex, "m_StreamData", None)
+    if sd is None:
+        return True
+    path = getattr(sd, "path", None) or ""
+    size = getattr(sd, "size", 0) or 0
+    return not path or not size
+
+
 def unpack_bundle(
     data: bytes,
     bundle_name: str,
@@ -199,7 +219,13 @@ def unpack_bundle(
         obj = objects[i]
         type_name = candidates[i][0]
         try:
-            image = obj.parse_as_object().image
+            parsed = obj.parse_as_object()
+            if type_name == "Texture2D" and is_empty_texture(parsed):
+                outcome.warnings.append(
+                    f"{bundle_name}: {type_name} {candidates[i][1]!r}: empty texture"
+                )
+                continue
+            image = parsed.image
         except Exception as e:  # noqa: BLE001 - one bad texture must not stop the run
             outcome.warnings.append(
                 f"{bundle_name}: {type_name} {candidates[i][1]!r}: "
