@@ -247,7 +247,7 @@ def unpack_bundle(
                 address_prefix=address,
                 object_type=type_name,
                 name=candidates[i][1],
-                path=str(dest.relative_to(out_root)),
+                path=dest.relative_to(out_root).as_posix(),
                 width=image.width,
                 height=image.height,
             )
