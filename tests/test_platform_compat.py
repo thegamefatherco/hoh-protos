@@ -305,6 +305,40 @@ def test_image_record_paths_use_posix_separators(tmp_path: Path):
     assert (out_root / previous["b.bundle"][0].path).is_file()
 
 
+def test_load_previous_records_normalizes_legacy_windows_paths(tmp_path: Path):
+    """Old Windows indexes used backslashes; resume must still find the PNGs."""
+    out_root = tmp_path / "out"
+    dest = out_root / "extracted" / "addr" / "icon.png"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"png")
+
+    (out_root / unpack.INDEX_FILENAME).write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "bundle": "b.bundle",
+                        "address_prefix": "addr",
+                        "object_type": "Sprite",
+                        "name": "icon",
+                        "path": "extracted\\addr\\icon.png",
+                        "width": 8,
+                        "height": 8,
+                    }
+                ],
+                "empty_bundles": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    previous = unpack._load_previous_records(out_root)
+    assert "b.bundle" in previous
+    assert previous["b.bundle"][0].path == "extracted/addr/icon.png"
+    assert "\\" not in previous["b.bundle"][0].path
+    assert (out_root / previous["b.bundle"][0].path).is_file()
+
+
 def test_host_cache_dirs_are_writable(tmp_path: Path, monkeypatch):
     """Smoke: real platformdirs cache roots work on the runner OS (no OS mock)."""
     monkeypatch.setattr(
