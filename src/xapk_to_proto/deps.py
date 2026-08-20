@@ -9,6 +9,7 @@ import stat
 import subprocess
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -21,10 +22,19 @@ DEFAULT_DUMPER_ASSET = "Il2CppDumper-CLI-20260329T093452Z_0507132.zip"
 # Windows81 CLI targets net9.0; DOTNET_ROLL_FORWARD cannot substitute an 8.0 runtime.
 DOTNET_CHANNEL = "9.0"
 DOTNET_INSTALL_URL = "https://dot.net/v1/dotnet-install.sh"
+DOTNET_MANUAL_HINT = "Install .NET 9 from https://dot.net"
 
 # EFForg/apkeep — no official macOS release assets; use Homebrew there.
 DEFAULT_APKEEP_VERSION = "1.0.0"
 APKEEP_REPO = "EFForg/apkeep"
+
+
+@dataclass(frozen=True)
+class DepResult:
+    name: str
+    status: str  # "ok" | "missing" | "skipped" | "failed"
+    detail: str
+    hint: str | None = None
 
 
 def cache_dir() -> Path:
@@ -92,6 +102,8 @@ def resolve_dotnet() -> list[str]:
     if exe:
         return [exe]
 
+    if platform.system() == "Windows":
+        raise FileNotFoundError(f"dotnet not found. {DOTNET_MANUAL_HINT}")
     raise FileNotFoundError("dotnet not found. Run: hoh-protos setup")
 
 
@@ -154,6 +166,18 @@ def _apkeep_missing_message() -> str:
     return "apkeep not found. Run: hoh-protos setup"
 
 
+def _apkeep_missing_hint() -> str:
+    if platform.system() == "Darwin":
+        return "brew install apkeep"
+    return "hoh-protos setup"
+
+
+def _dotnet_missing_hint() -> str:
+    if platform.system() == "Windows":
+        return DOTNET_MANUAL_HINT
+    return "hoh-protos setup"
+
+
 def resolve_apkeep() -> str:
     """Return path to an ``apkeep`` executable.
 
@@ -209,7 +233,30 @@ def _system_dotnet_with_runtime(major: str = "9") -> Path | None:
     return None
 
 
-def install_dotnet(*, force: bool = False, verbose: bool = False) -> Path:
+def find_dotnet_with_runtime(major: str = "9") -> Path | None:
+    """Locate a usable ``dotnet`` with Microsoft.NETCore.App *major*.x (no install)."""
+    env = os.environ.get("XAPK_TO_PROTO_DOTNET")
+    if env:
+        path = Path(env)
+        if path.is_file():
+            return path
+        return None
+
+    dest = dotnet_cache_dir()
+    bundled = dest / "dotnet"
+    if bundled.is_file() and has_netcore_runtime(dest, major):
+        return bundled
+
+    return _system_dotnet_with_runtime(major)
+
+
+def install_dotnet(*, force: bool = False, verbose: bool = False) -> Path | None:
+    """Install or locate .NET 9.
+
+    Returns the ``dotnet`` path on success. On Windows, never runs the bash
+    installer — returns ``None`` when no usable net9 host is present (caller
+    treats that as skipped/missing).
+    """
     dest = dotnet_cache_dir()
     dotnet_bin = dest / "dotnet"
     if dotnet_bin.is_file() and not force and has_netcore_runtime(dest, "9"):
@@ -221,6 +268,11 @@ def install_dotnet(*, force: bool = False, verbose: bool = False) -> Path:
             if verbose:
                 print(f"using system dotnet: {system}", flush=True)
             return system
+
+    if platform.system() == "Windows":
+        if verbose:
+            print(f"skipping .NET auto-install on Windows — {DOTNET_MANUAL_HINT}", flush=True)
+        return None
 
     if force and dest.exists():
         shutil.rmtree(dest)
@@ -316,22 +368,126 @@ def install_apkeep(*, force: bool = False, verbose: bool = False) -> str | None:
     return str(dest)
 
 
-def setup(*, force: bool = False, verbose: bool = False) -> None:
-    print("==> .NET runtime", flush=True)
-    dotnet_bin = install_dotnet(force=force, verbose=verbose)
-    print(f"  {dotnet_bin}", flush=True)
+def _check_dotnet() -> DepResult:
+    env = os.environ.get("XAPK_TO_PROTO_DOTNET")
+    if env:
+        path = Path(env)
+        if path.is_file():
+            return DepResult(".NET", "ok", str(path))
+        return DepResult(
+            ".NET",
+            "missing",
+            f"XAPK_TO_PROTO_DOTNET not found: {env}",
+            hint=_dotnet_missing_hint(),
+        )
 
-    print("==> Il2CppDumper", flush=True)
-    dll = install_dumper(force=force, verbose=verbose)
-    print(f"  {dll}", flush=True)
+    found = find_dotnet_with_runtime("9")
+    if found is not None:
+        return DepResult(".NET", "ok", str(found))
+    return DepResult(
+        ".NET",
+        "missing",
+        "Microsoft.NETCore.App 9.x not found",
+        hint=_dotnet_missing_hint(),
+    )
 
-    print("==> apkeep", flush=True)
-    apkeep = install_apkeep(force=force, verbose=verbose)
-    if apkeep:
-        print(f"  {apkeep}", flush=True)
-    else:
-        print("  not found — install with: brew install apkeep", flush=True)
 
-    print("", flush=True)
-    print("Ready. Example:", flush=True)
-    print('  hoh-protos "/path/to/game.xapk" -o ./output', flush=True)
+def _check_dumper() -> DepResult:
+    try:
+        dll = resolve_dumper_dll()
+        return DepResult("Il2CppDumper", "ok", str(dll))
+    except FileNotFoundError as e:
+        return DepResult("Il2CppDumper", "missing", str(e), hint="hoh-protos setup")
+
+
+def _check_apkeep() -> DepResult:
+    try:
+        path = resolve_apkeep()
+        return DepResult("apkeep", "ok", path)
+    except FileNotFoundError as e:
+        return DepResult("apkeep", "missing", str(e), hint=_apkeep_missing_hint())
+
+
+def check_deps() -> list[DepResult]:
+    """Resolve-only status for external tools needed by the CLI."""
+    return [_check_dotnet(), _check_dumper(), _check_apkeep()]
+
+
+def print_dep_results(results: list[DepResult]) -> None:
+    width = max((len(r.status) for r in results), default=0)
+    for r in results:
+        line = f"{r.status:<{width}}  {r.name}  {r.detail}"
+        print(line, flush=True)
+        if r.hint and r.status != "ok":
+            print(f"{'':<{width}}  hint: {r.hint}", flush=True)
+
+
+def any_required_missing(results: list[DepResult]) -> bool:
+    return any(r.status in ("missing", "failed") for r in results)
+
+
+def any_failed(results: list[DepResult]) -> bool:
+    return any(r.status == "failed" for r in results)
+
+
+def setup(*, force: bool = False, verbose: bool = False) -> list[DepResult]:
+    """Install each dependency independently; return per-dep status."""
+    results: list[DepResult] = []
+
+    try:
+        dotnet_bin = install_dotnet(force=force, verbose=verbose)
+        if dotnet_bin is not None:
+            results.append(DepResult(".NET", "ok", str(dotnet_bin)))
+        else:
+            results.append(
+                DepResult(
+                    ".NET",
+                    "skipped",
+                    "auto-install not supported on Windows",
+                    hint=DOTNET_MANUAL_HINT,
+                )
+            )
+    except Exception as e:
+        results.append(DepResult(".NET", "failed", str(e), hint=_dotnet_missing_hint()))
+
+    try:
+        dll = install_dumper(force=force, verbose=verbose)
+        results.append(DepResult("Il2CppDumper", "ok", str(dll)))
+    except Exception as e:
+        results.append(
+            DepResult("Il2CppDumper", "failed", str(e), hint="hoh-protos setup --force")
+        )
+
+    try:
+        apkeep = install_apkeep(force=force, verbose=verbose)
+        if apkeep:
+            results.append(DepResult("apkeep", "ok", apkeep))
+        else:
+            results.append(
+                DepResult(
+                    "apkeep",
+                    "missing",
+                    "not found on PATH",
+                    hint=_apkeep_missing_hint(),
+                )
+            )
+    except Exception as e:
+        results.append(
+            DepResult("apkeep", "failed", str(e), hint=_apkeep_missing_hint())
+        )
+
+    print_dep_results(results)
+
+    if not any_required_missing(results) and not any(
+        r.status == "skipped" for r in results
+    ):
+        print("", flush=True)
+        print("Ready. Example:", flush=True)
+        print('  hoh-protos "/path/to/game.xapk" -o ./output', flush=True)
+    elif any(r.status == "skipped" for r in results) and not any_failed(results):
+        # Windows .NET skipped but other deps may be ok — still useful.
+        if not any(r.status in ("missing", "failed") for r in results if r.name != ".NET"):
+            print("", flush=True)
+            print("Cached tools ready. Install .NET 9 manually before running Il2CppDumper.", flush=True)
+
+    return results

@@ -184,3 +184,143 @@ def test_install_apkeep_linux_downloads(tmp_path: Path, monkeypatch):
     assert path == str(cache / "apkeep")
     assert Path(path).is_file()
     assert Path(path).stat().st_mode & 0o111
+
+
+def test_check_deps_all_ok(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("XAPK_TO_PROTO_DOTNET", raising=False)
+    monkeypatch.delenv("XAPK_TO_PROTO_DUMPER", raising=False)
+    monkeypatch.delenv("XAPK_TO_PROTO_APKEEP", raising=False)
+
+    dotnet = tmp_path / "dotnet"
+    dumper = tmp_path / "Il2CppDumper.dll"
+    apkeep = tmp_path / "apkeep"
+    for p in (dotnet, dumper, apkeep):
+        p.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(deps, "find_dotnet_with_runtime", lambda _major="9": dotnet)
+    monkeypatch.setattr(deps, "resolve_dumper_dll", lambda: dumper)
+    monkeypatch.setattr(deps, "resolve_apkeep", lambda: str(apkeep))
+
+    results = deps.check_deps()
+    assert [(r.name, r.status) for r in results] == [
+        (".NET", "ok"),
+        ("Il2CppDumper", "ok"),
+        ("apkeep", "ok"),
+    ]
+    assert not deps.any_required_missing(results)
+
+
+def test_check_deps_reports_missing(monkeypatch):
+    monkeypatch.delenv("XAPK_TO_PROTO_DOTNET", raising=False)
+    monkeypatch.setattr(deps, "find_dotnet_with_runtime", lambda _major="9": None)
+    monkeypatch.setattr(
+        deps,
+        "resolve_dumper_dll",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("Il2CppDumper not found")),
+    )
+    monkeypatch.setattr(
+        deps,
+        "resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("apkeep not found")),
+    )
+    monkeypatch.setattr(deps.platform, "system", lambda: "Linux")
+
+    results = deps.check_deps()
+    assert all(r.status == "missing" for r in results)
+    assert deps.any_required_missing(results)
+    assert results[0].hint == "hoh-protos setup"
+
+
+def test_check_deps_windows_dotnet_hint(monkeypatch):
+    monkeypatch.delenv("XAPK_TO_PROTO_DOTNET", raising=False)
+    monkeypatch.setattr(deps, "find_dotnet_with_runtime", lambda _major="9": None)
+    monkeypatch.setattr(
+        deps,
+        "resolve_dumper_dll",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    monkeypatch.setattr(
+        deps,
+        "resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    monkeypatch.setattr(deps.platform, "system", lambda: "Windows")
+
+    results = deps.check_deps()
+    assert results[0].name == ".NET"
+    assert results[0].status == "missing"
+    assert "dot.net" in (results[0].hint or "")
+
+
+def test_install_dotnet_windows_skips_bash(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(deps, "dotnet_cache_dir", lambda: cache)
+    monkeypatch.setattr(deps.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(deps, "_system_dotnet_with_runtime", lambda _major="9": None)
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("bash installer must not run on Windows")
+
+    monkeypatch.setattr(deps, "urlretrieve", boom)
+    assert deps.install_dotnet() is None
+    assert deps.install_dotnet(force=True) is None
+
+
+def test_install_dotnet_windows_uses_system(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "cache"
+    system = tmp_path / "dotnet.exe"
+    system.write_text("", encoding="utf-8")
+    monkeypatch.setattr(deps, "dotnet_cache_dir", lambda: cache)
+    monkeypatch.setattr(deps.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(deps, "_system_dotnet_with_runtime", lambda _major="9": system)
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("bash installer must not run on Windows")
+
+    monkeypatch.setattr(deps, "urlretrieve", boom)
+    assert deps.install_dotnet() == system
+
+
+def test_setup_continues_when_dotnet_skipped(tmp_path: Path, monkeypatch, capsys):
+    dumper_cache = tmp_path / "dumper"
+    apkeep_cache = tmp_path / "apkeep"
+    monkeypatch.setattr(deps, "dumper_cache_dir", lambda: dumper_cache)
+    monkeypatch.setattr(deps, "apkeep_cache_dir", lambda: apkeep_cache)
+    monkeypatch.setattr(deps.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(deps.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(deps, "install_dotnet", lambda **_kw: None)
+    monkeypatch.setattr(
+        deps,
+        "resolve_apkeep",
+        lambda: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    def fake_dumper_urlretrieve(_url: str, filename: str | Path) -> None:
+        path = Path(filename)
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("Il2CppDumper.dll", b"MZ")
+
+    def fake_apkeep_urlretrieve(_url: str, filename: str | Path) -> None:
+        Path(filename).write_bytes(b"MZ")
+
+    calls = {"n": 0}
+
+    def fake_urlretrieve(url: str, filename: str | Path) -> None:
+        calls["n"] += 1
+        if "Il2CppDumper" in url or "dumper" in str(filename):
+            fake_dumper_urlretrieve(url, filename)
+        else:
+            fake_apkeep_urlretrieve(url, filename)
+
+    monkeypatch.setattr(deps, "urlretrieve", fake_urlretrieve)
+
+    results = deps.setup()
+    by_name = {r.name: r for r in results}
+    assert by_name[".NET"].status == "skipped"
+    assert by_name["Il2CppDumper"].status == "ok"
+    assert by_name["apkeep"].status == "ok"
+    assert not deps.any_failed(results)
+    assert (dumper_cache / "Il2CppDumper.dll").is_file()
+    out = capsys.readouterr().out
+    assert "skipped" in out
+    assert "Il2CppDumper" in out
