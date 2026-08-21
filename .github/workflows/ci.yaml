@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    name: pytest (${{ matrix.os }})
+    name: test (os=${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -27,7 +27,7 @@ jobs:
         run: uv run pytest -m "not acceptance" -q
 
   generate:
-    name: generate (${{ matrix.os }}, ${{ matrix.world }}/${{ matrix.version }})
+    name: generate (os=${{ matrix.os }} world=${{ matrix.world }} version=${{ matrix.version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
