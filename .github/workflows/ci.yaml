@@ -83,4 +83,7 @@ jobs:
 
       - name: Acceptance tests
         if: matrix.os == 'ubuntu-latest'
+        env:
+          HOH_WORLD: ${{ matrix.world }}
+          HOH_VERSION: ${{ matrix.version }}
         run: uv run pytest -m acceptance -q

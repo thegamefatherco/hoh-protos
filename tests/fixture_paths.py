@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-WORLD = "un0"
-VERSION = "1.50.3"
+WORLD = os.environ.get("HOH_WORLD", "un0")
+VERSION = os.environ.get("HOH_VERSION", "1.50.3")
 
 FIXTURES_DIR = Path("fixtures") / WORLD / VERSION
 OUTPUT_DIR = Path("output") / WORLD / VERSION
