@@ -247,7 +247,7 @@ def unpack_bundle(
                 address_prefix=address,
                 object_type=type_name,
                 name=candidates[i][1],
-                path=str(dest.relative_to(out_root)),
+                path=dest.relative_to(out_root).as_posix(),
                 width=image.width,
                 height=image.height,
             )
@@ -409,6 +409,10 @@ def _load_previous_records(out_dir: Path) -> dict[str, list[ImageRecord]]:
             record = ImageRecord(**raw)
         except TypeError:
             return {}
+        # Legacy Windows indexes used backslashes; Path joins treat those as one
+        # component on POSIX, so normalize before the existence check and keep
+        # the POSIX form so the next write_index stays consistent.
+        record.path = record.path.replace("\\", "/")
         if not (out_dir / record.path).is_file():
             continue
         done.setdefault(record.bundle, []).append(record)

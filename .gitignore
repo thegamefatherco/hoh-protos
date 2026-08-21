@@ -11,3 +11,9 @@ AssetRipper_mac_arm64/
 !.env.example
 
 protolint_report.json
+
+# pytest-cov annotate output (local only)
+cov_annotate/
+.coverage
+.coverage.*
+htmlcov/

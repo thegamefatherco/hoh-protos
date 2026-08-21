@@ -8,7 +8,7 @@ The `hoh-protos` CLI unpacks the XAPK, runs a [v39-capable Il2CppDumper fork](ht
 
 - **Python** 3.10 or newer
 - A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) — `hoh-protos download-xapk` can fetch one via [apkeep](https://github.com/EFForg/apkeep) (`brew install apkeep` on macOS; otherwise install from that repo)
-- Network access the first time you run `hoh-protos setup` (downloads .NET 9 and Il2CppDumper into your user cache)
+- Network access the first time you run `hoh-protos setup` (downloads Il2CppDumper into your user cache; also .NET 9 on non-Windows). On Windows, install .NET 9 manually. Use `hoh-protos check-deps` to verify.
 
 Games that are not IL2CPP or do not use protobuf will fail with a clear error.
 
@@ -44,15 +44,18 @@ pip install 'hoh-protos[assets]'      # or: pip install -e '.[assets]'
 
 ## One-time setup
 
-Download the bundled .NET runtime and Il2CppDumper (cached under your platform
-user cache directory, typically `~/.cache/hoh-protos` on Linux). Install
-[apkeep](https://github.com/EFForg/apkeep) yourself: Homebrew on macOS, or
-follow the maintainer’s instructions (precompiled binaries or `cargo install`)
-on other platforms.
+Install external tools into the user cache (typically `~/.cache/hoh-protos` on
+Linux). `hoh-protos setup` handles each dependency independently and prints a
+per-dep status. On **Windows**, install [.NET 9](https://dot.net) yourself —
+setup skips .NET auto-install and still caches Il2CppDumper + apkeep.
+
+On macOS, install [apkeep](https://github.com/EFForg/apkeep) with Homebrew; on
+Linux/Windows, `setup` downloads the release binary into the cache.
 
 ```bash
-brew install apkeep   # macOS; elsewhere: https://github.com/EFForg/apkeep
+brew install apkeep   # macOS only
 hoh-protos setup
+hoh-protos check-deps
 ```
 
 To refresh cached tools (required after upgrading this package when the default dumper changes, e.g. for Unity 6 / metadata v39):
@@ -132,7 +135,8 @@ Pass an explicit path flag to override any single default.
 
 | Command | Purpose |
 | --- | --- |
-| `hoh-protos setup` | Install .NET 9 + Il2CppDumper into the user cache |
+| `hoh-protos setup` | Install Il2CppDumper (+ apkeep on Linux/Windows); locate .NET 9; print per-dep status |
+| `hoh-protos check-deps` | Report whether .NET 9, Il2CppDumper, and apkeep are available |
 | `hoh-protos download-fixtures` | Download `game.xapk` + startup/gamedesign/loca under `fixtures/{world}/{version}/` |
 | `hoh-protos download-xapk --version V` | Download XAPK → `fixtures/{world}/{version}/game.xapk` |
 | `hoh-protos run --version V` | Full pipeline (default output: `output/{world}/{version}/`) |

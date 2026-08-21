@@ -20,18 +20,50 @@ from tests.fixture_paths import (
     FIXTURE_LOCA,
     FIXTURE_PROTO_DIR,
     FIXTURE_XAPK,
+    OUTPUT_DIR,
 )
-from xapk_to_proto import definitions, loca
-from xapk_to_proto.gamedesign import is_hero_related_type
+from xapk_to_proto import definitions, dumper, extract, loca
+from xapk_to_proto.gamedesign import is_hero_related_type, load_descriptor_pool
 
 
 pytestmark = pytest.mark.acceptance
 
 
+def test_core_generate_artifacts_present() -> None:
+    if not OUTPUT_DIR.is_dir():
+        pytest.skip(f"missing generate output root {OUTPUT_DIR}")
+
+    dump_cs = OUTPUT_DIR / "il2cpp" / "dump.cs"
+    descriptors = OUTPUT_DIR / "descriptors.pb"
+    bundle = OUTPUT_DIR / "descriptors_bundle.pb"
+    proto_dir = OUTPUT_DIR / "proto"
+
+    missing = [
+        str(path)
+        for path, ok in (
+            (dump_cs, dump_cs.is_file()),
+            (descriptors, descriptors.is_file()),
+            (bundle, bundle.is_file()),
+            (proto_dir, proto_dir.is_dir()),
+        )
+        if not ok
+    ]
+    assert not missing, f"incomplete generate output under {OUTPUT_DIR}: {missing}"
+
+
+def test_dump_cs_exists_and_is_valid() -> None:
+    if not FIXTURE_DUMP_CS.is_file():
+        pytest.skip(f"missing {FIXTURE_DUMP_CS}")
+
+    assert FIXTURE_DUMP_CS.stat().st_size > 100_000
+    dumper.validate_dump(FIXTURE_DUMP_CS)
+    protos = extract.parse_dump_cs(FIXTURE_DUMP_CS)
+    assert len(protos) > 50
+
+
 def test_descriptors_load_into_pool() -> None:
     if not FIXTURE_DESCRIPTORS.is_file():
         pytest.skip(f"missing {FIXTURE_DESCRIPTORS}")
-    from xapk_to_proto.gamedesign import load_descriptor_pool
 
     pool, short_index = load_descriptor_pool(FIXTURE_DESCRIPTORS)
     assert "GameDesignResponse" in short_index
@@ -57,6 +89,11 @@ def test_descriptors_bundle_includes_well_known() -> None:
 def test_proto_tree_is_nonempty_and_self_contained() -> None:
     if not FIXTURE_PROTO_DIR.is_dir():
         pytest.skip(f"missing {FIXTURE_PROTO_DIR}")
+    if not FIXTURE_DESCRIPTORS.is_file():
+        pytest.skip(f"missing {FIXTURE_DESCRIPTORS}")
+    if not FIXTURE_BUNDLE.is_file():
+        pytest.skip(f"missing {FIXTURE_BUNDLE}")
+
     protos = list(FIXTURE_PROTO_DIR.glob("**/*.proto"))
     assert len(protos) > 50
     for path in protos:
@@ -64,6 +101,18 @@ def test_proto_tree_is_nonempty_and_self_contained() -> None:
     google = FIXTURE_PROTO_DIR / "google" / "protobuf"
     assert (google / "any.proto").is_file()
     assert (google / "timestamp.proto").is_file()
+
+    fds = descriptor_pb2.FileDescriptorSet()
+    fds.ParseFromString(FIXTURE_DESCRIPTORS.read_bytes())
+    for fd in fds.file:
+        rel = fd.name.replace("\\", "/")
+        path = FIXTURE_PROTO_DIR / rel
+        assert path.is_file(), f"missing emitted proto for {rel}"
+        text = path.read_text(encoding="utf-8")
+        assert "syntax =" in text, path
+        assert "message " in text or "enum " in text, path
+
+    load_descriptor_pool(FIXTURE_BUNDLE)
 
 
 def test_gamedesign_fixture_decodes_full_catalog(tmp_path: Path) -> None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from xapk_to_proto.pipeline import run as pipeline_run
 _SUBCOMMANDS = frozenset(
     {
         "setup",
+        "check-deps",
         "extract",
         "emit",
         "run",
@@ -158,13 +158,21 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
 def _add_setup_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "setup",
-        help="Download dotnet, Il2CppDumper, and apkeep into user cache",
+        help="Download Il2CppDumper and apkeep into user cache; locate .NET 9",
         description=(
-            "Install external dependencies (dotnet + Il2CppDumper; apkeep on "
-            "Linux/Windows). On macOS install apkeep with: brew install apkeep"
+            "Install external dependencies independently and print per-dep status.\n"
+            "Caches Il2CppDumper; caches apkeep on Linux/Windows "
+            "(on macOS install with: brew install apkeep).\n"
+            "On Windows, .NET 9 must be installed manually from https://dot.net — "
+            "setup skips auto-install and continues with the other deps."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=("Examples:\n  hoh-protos setup\n  hoh-protos setup --force\n"),
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos setup\n"
+            "  hoh-protos setup --force\n"
+            "  hoh-protos check-deps\n"
+        ),
     )
     p.add_argument(
         "--force",
@@ -173,6 +181,18 @@ def _add_setup_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
+
+def _add_check_deps_parser(sub: argparse._SubParsersAction) -> None:
+    sub.add_parser(
+        "check-deps",
+        help="Report status of .NET, Il2CppDumper, and apkeep",
+        description=(
+            "Check whether each external dependency needed by the CLI is available "
+            "(no downloads). Exit 0 only when all are ok."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=("Examples:\n  hoh-protos check-deps\n"),
+    )
 
 def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
@@ -989,9 +1009,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Extract .proto schemas from Unity IL2CPP + Google.Protobuf XAPK files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Run `hoh-protos setup` once before the main pipeline.\n\n"
+            "Run `hoh-protos setup` once before the main pipeline; "
+            "`hoh-protos check-deps` reports dependency status.\n\n"
             "Examples:\n"
             "  hoh-protos setup\n"
+            "  hoh-protos check-deps\n"
             "  hoh-protos download-xapk --version 1.50.3\n"
             "  hoh-protos run --version 1.50.3\n"
             "  hoh-protos download-assets --version 1.50.3\n"
@@ -1000,6 +1022,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     _add_setup_parser(sub)
+    _add_check_deps_parser(sub)
     _add_extract_parser(sub)
     _add_emit_parser(sub)
     _add_run_parser(sub)
@@ -1249,12 +1272,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "setup":
-        try:
-            deps.setup(force=args.force, verbose=args.verbose)
-        except (RuntimeError, subprocess.CalledProcessError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
-        return 0
+        results = deps.setup(force=args.force, verbose=args.verbose)
+        return 1 if deps.any_failed(results) else 0
+
+    if args.command == "check-deps":
+        results = deps.check_deps()
+        deps.print_dep_results(results)
+        return 1 if deps.any_required_missing(results) else 0
 
     if args.command == "extract":
         err = _resolve_extract_args(args)

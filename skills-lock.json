@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "cli-developer": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cli-developer/SKILL.md",
+      "computedHash": "8ac5b5dc1cc784f255f4ebde0c65d0185da4a7d6b02d8d38838be178b62cfd7a"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "protobuf": {
+      "source": "bufbuild/claude-plugins",
+      "sourceType": "github",
+      "skillPath": "plugins/protobuf/skills/protobuf/SKILL.md",
+      "computedHash": "ab81fda811287aef352fe7e507f2008b76d879e3a5bc153cee0ca30bd5bbef6e"
+    },
+    "pytest-coverage": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/pytest-coverage/SKILL.md",
+      "computedHash": "06481f4bbc6d80a52091ec9ba5856eb1dc5f80cbabb40fd4ad02aaea3085a0dc"
+    },
+    "python-packaging": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-packaging/SKILL.md",
+      "computedHash": "f909306678a23ce30ce7f792e86fb721a6d339d7a01ace7acd3b122781f55a31"
+    }
+  }
+}
