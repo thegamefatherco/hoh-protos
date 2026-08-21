@@ -22,6 +22,16 @@ _VERSION_ERROR = re.compile(
     r"not a supported version\[(\d+)\]",
     re.IGNORECASE,
 )
+# Matches extract.split_dump_sections; image-list "Reflection" alone is not enough.
+_REFLECTION_CLASS = re.compile(
+    r"public static class \w+Reflection\s*// TypeDefIndex:",
+)
+
+# Skip DummyDll once dump.cs stops growing (DummyDll does not append to dump.cs).
+_MIN_DUMP_BYTES = 1_000_000
+_STABLE_SECONDS = 3.0
+_POLL_INTERVAL = 0.5
+_DUMPER_TIMEOUT = 600
 
 
 def _filter_dumper_output(text: str) -> str:
@@ -69,6 +79,41 @@ def _drain_pipe(pipe, chunks: list[str], tee: bool) -> None:
         pipe.close()
 
 
+def dump_size_stable(
+    size: int,
+    last_size: int,
+    stable_since: float | None,
+    now: float,
+    *,
+    min_bytes: int = _MIN_DUMP_BYTES,
+    stable_seconds: float = _STABLE_SECONDS,
+) -> tuple[bool, int, float | None]:
+    """Track whether dump.cs has stopped growing past ``min_bytes``.
+
+    Returns ``(should_terminate, new_last_size, new_stable_since)``.
+    """
+    if size < min_bytes:
+        return False, size, None
+    if size != last_size:
+        return False, size, now
+    if stable_since is None:
+        return False, size, now
+    if now - stable_since >= stable_seconds:
+        return True, size, stable_since
+    return False, size, stable_since
+
+
+def _terminate_dumper(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
 def run_il2cpp_dumper(
     libil2cpp: Path,
     metadata: Path,
@@ -109,21 +154,21 @@ def run_il2cpp_dumper(
     for t in threads:
         t.start()
 
-    deadline = time.time() + 600
+    deadline = time.time() + _DUMPER_TIMEOUT
+    last_size = -1
+    stable_since: float | None = None
     while time.time() < deadline:
-        if dump_cs.is_file() and dump_cs.stat().st_size > 500_000:
-            time.sleep(2)
-            if proc.poll() is not None:
-                break
-            proc.terminate()
-            try:
-                proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            break
         if proc.poll() is not None:
             break
-        time.sleep(1)
+        if dump_cs.is_file():
+            size = dump_cs.stat().st_size
+            should_stop, last_size, stable_since = dump_size_stable(
+                size, last_size, stable_since, time.time()
+            )
+            if should_stop:
+                _terminate_dumper(proc)
+                break
+        time.sleep(_POLL_INTERVAL)
 
     if proc.poll() is None:
         proc.kill()
@@ -145,7 +190,8 @@ def validate_dump(dump_cs: Path) -> None:
         raise RuntimeError(
             "dump.cs has no Google.Protobuf types — this game may not use Google.Protobuf"
         )
-    if "Reflection" not in text:
+    if not _REFLECTION_CLASS.search(text):
         raise RuntimeError(
-            "dump.cs has no *Reflection classes — protobuf schemas likely unavailable"
+            "dump.cs has no public static *Reflection classes — "
+            "protobuf schemas likely unavailable (dump may be truncated)"
         )
