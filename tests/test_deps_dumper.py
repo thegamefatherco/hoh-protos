@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import zipfile
 from pathlib import Path
 
@@ -183,7 +184,9 @@ def test_install_apkeep_linux_downloads(tmp_path: Path, monkeypatch):
     path = deps.install_apkeep()
     assert path == str(cache / "apkeep")
     assert Path(path).is_file()
-    assert Path(path).stat().st_mode & 0o111
+    # Execute bits are unreliable on Windows hosts even when the mocked OS is Linux.
+    if sys.platform != "win32":
+        assert Path(path).stat().st_mode & 0o111
 
 
 def test_check_deps_all_ok(tmp_path: Path, monkeypatch):
