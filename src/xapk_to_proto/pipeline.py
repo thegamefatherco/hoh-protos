@@ -164,6 +164,11 @@ def run(args: Namespace) -> int:
         missing = stats.get("missing_well_known") or []
         if missing:
             vlog(f"  missing_well_known: {', '.join(missing)}", args.verbose)
+        if stats["merged"] == 0:
+            raise RuntimeError(
+                "no protobuf descriptors extracted "
+                f"(embedded={stats['embedded']} rebuilt={stats['rebuilt']})"
+            )
 
         wire_fix_input = _resolve_wire_fix_input(args)
         if wire_fix_input is not None:

@@ -116,6 +116,14 @@ class MessageDef:
 
 
 @dataclass
+class OneofCaseDef:
+    """C# *OneofCase enum metadata — not a proto enum."""
+
+    name: str
+    members: list[tuple[str, int]] = field(default_factory=list)
+
+
+@dataclass
 class ProtoFile:
     name: str
     package: str
@@ -356,6 +364,111 @@ def _looks_like_protobuf_message(block: str) -> bool:
     return bool(re.search(r"\bIMessage\b", header))
 
 
+_CS_TYPE = r"(?:MapField|RepeatedField|Nullable)<[^>]+>|[\w<>,\.]+"
+
+
+def parse_oneof_case_block(block: str) -> list[tuple[str, int]]:
+    """Parse C# *OneofCase enum members. Skips None/0. Not a proto enum."""
+    members: list[tuple[str, int]] = []
+    for m in re.finditer(
+        r"public const [\w\.]+OneofCase (\w+) = (-?\d+);",
+        block,
+    ):
+        name, number = m.group(1), int(m.group(2))
+        if name == "None" or number == 0:
+            continue
+        members.append((name, number))
+    return members
+
+
+def split_oneof_case_name(full_name: str) -> tuple[list[str], str]:
+    """Split Parent.LogOneofCase or Foo.Types.Bar.ValueOneofCase into parents + leaf.
+
+    OneofCase enums are nested on the message without an extra ``.Types.``
+    segment (unlike nested messages), e.g.
+    ``CrmOfferResurfacingDTO.Types.TriggerDTO.ValueOneofCase``.
+    """
+    parent_path, _, leaf = full_name.rpartition(".")
+    if not leaf.endswith("OneofCase"):
+        if ".Types." in full_name:
+            return parse_csharp_nested_name(full_name)
+        return ([parent_path] if parent_path else []), leaf
+    if not parent_path:
+        return [], leaf
+    if ".Types." in parent_path:
+        # Foo.Types.Bar.Types.Baz → ["Foo", "Bar", "Baz"]
+        return parent_path.split(".Types."), leaf
+    return [parent_path], leaf
+
+
+def _oneof_name_from_case_var(var: str) -> str:
+    name = var.rstrip("_")
+    if name.endswith("Case"):
+        name = name[: -len("Case")]
+    return camel_to_snake(name)
+
+
+def attach_oneof_fields(
+    msg: MessageDef, block: str, oneof_defs: list[OneofCaseDef]
+) -> None:
+    """Add oneof members from *OneofCase metadata using property getter types."""
+    if not oneof_defs:
+        return
+    existing_numbers = {f.number for f in msg.fields}
+    case_names_in_block = [
+        _oneof_name_from_case_var(m.group(1))
+        for m in re.finditer(r"\w+OneofCase (\w+);", block)
+    ]
+
+    for i, odef in enumerate(oneof_defs):
+        oneof_name = (
+            case_names_in_block[i] if i < len(case_names_in_block) else odef.name
+        )
+        if oneof_name in msg.oneofs:
+            oneof_index = msg.oneofs.index(oneof_name)
+        else:
+            oneof_index = len(msg.oneofs)
+            msg.oneofs.append(oneof_name)
+
+        for pascal, number in odef.members:
+            if number in existing_numbers:
+                for fld in msg.fields:
+                    if fld.number == number and fld.oneof_index is None:
+                        fld.oneof_index = oneof_index
+                continue
+
+            prop = re.search(
+                rf"public ({_CS_TYPE}) {re.escape(pascal)} \{{",
+                block,
+            )
+            if not prop:
+                prop = re.search(
+                    rf"public ({_CS_TYPE}) get_{re.escape(pascal)}\(",
+                    block,
+                )
+            if not prop:
+                continue
+            cs_type = prop.group(1)
+            p_type, type_name, _ = csharp_type_to_proto(cs_type)
+            msg.fields.append(
+                FieldDef(
+                    name=camel_to_snake(pascal),
+                    number=number,
+                    label=descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL,
+                    type=p_type,
+                    type_name=type_name
+                    if p_type
+                    in (
+                        descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE,
+                        descriptor_pb2.FieldDescriptorProto.TYPE_ENUM,
+                    )
+                    else "",
+                    oneof_index=oneof_index,
+                )
+            )
+            existing_numbers.add(number)
+
+
 def parse_message_block(name: str, block: str) -> MessageDef | None:
     if not _looks_like_protobuf_message(block):
         return None
@@ -364,16 +477,6 @@ def parse_message_block(name: str, block: str) -> MessageDef | None:
     for m in re.finditer(r"public const int (\w+)FieldNumber = (\d+);", block):
         field_numbers[int(m.group(2))] = m.group(1)
 
-    oneof_names: list[str] = []
-    for m in re.finditer(r"public const int (\w+)FieldNumber = (\d+);", block):
-        pass
-    for m in re.finditer(r"public (\w+) (\w+); // 0x", block):
-        if m.group(1) == "ParticipantOneofCase" or m.group(1).endswith("OneofCase"):
-            continue
-    for m in re.finditer(r"(\w+)OneofCase (\w+);", block):
-        oneof_names.append(m.group(1))
-
-    _CS_TYPE = r"(?:MapField|RepeatedField|Nullable)<[^>]+>|[\w<>,\.]+"
     for number, field_name in sorted(field_numbers.items()):
         pat = (
             rf"public const int {re.escape(field_name)}FieldNumber = {number};"
@@ -456,11 +559,31 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
             indices.append(("enum", m.start(), m.group(1)))
         indices.sort(key=lambda x: x[1])
 
+        pending_oneofs: dict[tuple[str, ...], list[OneofCaseDef]] = {}
+        blocks_by_path: dict[tuple[str, ...], str] = {}
+
         def find_message(pf: ProtoFile, name: str) -> MessageDef | None:
             for msg in pf.messages:
                 if msg.name == name:
                     return msg
             return None
+
+        def find_message_by_path(
+            pf: ProtoFile, path: tuple[str, ...]
+        ) -> MessageDef | None:
+            if not path:
+                return None
+            msg = find_message(pf, path[0])
+            if msg is None:
+                return None
+            for part in path[1:]:
+                msg = next(
+                    (m for m in msg.nested_messages if m.name == part),
+                    None,
+                )
+                if msg is None:
+                    return None
+            return msg
 
         def ensure_message(pf: ProtoFile, name: str) -> MessageDef:
             existing = find_message(pf, name)
@@ -495,23 +618,43 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
                 return
             if incoming.fields and not existing.fields:
                 existing.fields = incoming.fields
+            if incoming.oneofs and not existing.oneofs:
+                existing.oneofs = incoming.oneofs
             for ed in incoming.nested_enums:
                 if not any(e.name == ed.name for e in existing.nested_enums):
                     existing.nested_enums.append(ed)
             for nm in incoming.nested_messages:
                 merge_nested_message(existing, nm)
 
+        def record_oneof_case(full_name: str, block: str) -> None:
+            members = parse_oneof_case_block(block)
+            if not members:
+                return
+            parent_names, case_leaf = split_oneof_case_name(full_name)
+            if not parent_names:
+                return
+            oneof_name = camel_to_snake(case_leaf.removesuffix("OneofCase"))
+            pending_oneofs.setdefault(tuple(parent_names), []).append(
+                OneofCaseDef(name=oneof_name, members=members)
+            )
+
         deferred: list[tuple[str, str, str]] = []
         for i, (kind, pos, name) in enumerate(indices):
             if "<>c" in name or name.endswith(".Types"):
                 continue
+            end = indices[i + 1][1] if i + 1 < len(indices) else len(section)
+            block = section[pos:end]
+
+            # *OneofCase is a C# codegen artifact, not a proto enum.
+            if kind == "enum" and name.endswith("OneofCase"):
+                record_oneof_case(name, block)
+                continue
+
             # Protobuf C# nested types always use Parent.Types.Child. Plain
             # Parent.Child names are ordinary C# nested classes (and can be
             # false-positive IMessage hits in Il2CppDumper output).
             if "." in name and ".Types." not in name:
                 continue
-            end = indices[i + 1][1] if i + 1 < len(indices) else len(section)
-            block = section[pos:end]
             if ".Types." in name:
                 deferred.append((kind, name, block))
                 continue
@@ -522,6 +665,7 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
             else:
                 msg = parse_message_block(name, block)
                 if msg and (msg.fields or _looks_like_protobuf_message(block)):
+                    blocks_by_path[(name,)] = block
                     existing = find_message(pf, name)
                     if existing and not existing.fields:
                         existing.fields = msg.fields
@@ -531,6 +675,7 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
         for kind, full_name, block in deferred:
             parent_names, leaf_name = parse_csharp_nested_name(full_name)
             parent = ensure_nested_message(pf, parent_names)
+            path = tuple((*parent_names, leaf_name))
             if kind == "enum":
                 enum_def = parse_enum_block(leaf_name, block)
                 if enum_def:
@@ -539,7 +684,15 @@ def parse_dump_cs(dump_path: Path) -> dict[str, ProtoFile]:
                 msg = parse_message_block(leaf_name, block)
                 if msg:
                     msg.name = leaf_name
+                    blocks_by_path[path] = block
                     merge_nested_message(parent, msg)
+
+        for path, oneof_defs in pending_oneofs.items():
+            msg = find_message_by_path(pf, path)
+            block = blocks_by_path.get(path)
+            if msg is not None and block is not None:
+                attach_oneof_fields(msg, block, oneof_defs)
+
         if pf.messages or pf.enums:
             protos[proto_name] = pf
     return protos
@@ -629,6 +782,9 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
             add_enum(ed, target)
         for nested in md.nested_messages:
             add_message(nested, target, message_path)
+        for oneof_name in md.oneofs:
+            decl = target.oneof_decl.add()
+            decl.name = oneof_name
         for fld in md.fields:
             f = target.field.add()
             f.name = fld.name
@@ -682,6 +838,8 @@ def protofile_to_fdp(pf: ProtoFile) -> descriptor_pb2.FileDescriptorProto:
                 tn = resolve_field_type_name(pf, md, fld.type_name)
                 if tn:
                     f.type_name = tn
+            if fld.oneof_index is not None:
+                f.oneof_index = fld.oneof_index
             if fld.proto3_optional:
                 f.proto3_optional = True
 
