@@ -35,7 +35,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         world: [un0]
-        version: ["1.50.3", "1.51.4"]
+        version: ["1.51.4", "1.52.7", "1.53.5"]
 
     steps:
       - name: Checkout
