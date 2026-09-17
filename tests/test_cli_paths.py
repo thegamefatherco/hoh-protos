@@ -33,6 +33,55 @@ def test_download_assets_version_defaults(tmp_path: Path, monkeypatch):
     ).resolve()
 
 
+def test_download_assets_prefers_fixture_catalog(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_WORLD, raising=False)
+    fixtures = tmp_path / "fixtures" / "zz0" / "1.54.0"
+    fixtures.mkdir(parents=True)
+    catalog = fixtures / "catalog.bin"
+    catalog.write_bytes(b"c")
+    args = build_parser().parse_args(
+        ["download-assets", "--version", "1.54.0", "--world", "zz0"]
+    )
+    assert _resolve_download_assets_args(args) is None
+    assert args.catalog == catalog.resolve()
+    assert args.xapk is None
+
+
+def test_run_from_wasm_version_wires_fixtures(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_WORLD, raising=False)
+    fixtures = tmp_path / "fixtures" / "zz0" / "1.54.0"
+    fixtures.mkdir(parents=True)
+    (fixtures / "game.wasm").write_bytes(b"w")
+    (fixtures / "gamedesign").write_bytes(b"g")
+    (fixtures / "loca-compressed").write_bytes(b"l")
+    (fixtures / "catalog.bin").write_bytes(b"c")
+
+    args = build_parser().parse_args(
+        ["run", "--from-wasm", "--world", "zz0", "--version", "1.54.0"]
+    )
+    assert _resolve_run_args(args) is None
+    assert args.xapk is None
+    assert args.from_wasm is True
+    assert args.gamedesign_input == (fixtures / "gamedesign").resolve()
+    assert args.loca_input == (fixtures / "loca-compressed").resolve()
+    assert args.catalog == (fixtures / "catalog.bin").resolve()
+    assert args.fixtures_dir == fixtures.resolve()
+
+
+def test_run_from_wasm_requires_version_or_creds(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_WORLD, raising=False)
+    monkeypatch.delenv("HOH_USERNAME", raising=False)
+    monkeypatch.delenv("HOH_PASSWORD", raising=False)
+    args = build_parser().parse_args(["run", "--from-wasm", "--world", "zz0"])
+    err = _resolve_run_args(args)
+    assert err is not None
+    assert "--from-wasm" in err
+    assert "--version" in err
+
+
 def test_download_assets_explicit_overrides(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     catalog = tmp_path / "catalog.bin"

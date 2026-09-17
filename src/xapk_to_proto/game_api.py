@@ -1,7 +1,8 @@
 """Download HoH server fixtures (startup / gamedesign / loca) from InnoGames.
 
-Talks only to ``*.heroesgame.com`` and ``*.heroesofhistorygame.com``. Writes
-raw protobuf response bodies as local files. No third-party upload.
+Also supports WebGL Build artifacts (``wasm`` / ``catalog``) via the CDN after
+the same login. Talks only to ``*.heroesgame.com``, ``*.heroesofhistorygame.com``,
+APKPure (optional XAPK), and the InnoGames CDN. Writes local files only.
 """
 
 from __future__ import annotations
@@ -36,13 +37,22 @@ ENV_LOCALE = "HOH_LOCALE"
 FIXTURE_STARTUP = "startup"
 FIXTURE_GAMEDESIGN = "gamedesign"
 FIXTURE_LOCA = "loca-compressed"
+FIXTURE_WASM = "wasm"
+FIXTURE_CATALOG = "catalog"
 
 ONLY_ALIASES = {
     "startup": FIXTURE_STARTUP,
     "gamedesign": FIXTURE_GAMEDESIGN,
     "loca": FIXTURE_LOCA,
     "loca-compressed": FIXTURE_LOCA,
+    "wasm": FIXTURE_WASM,
+    "catalog": FIXTURE_CATALOG,
 }
+
+# Tokens that hit the game protobuf API (not CDN).
+PROTOBUF_FIXTURES = frozenset({FIXTURE_STARTUP, FIXTURE_GAMEDESIGN, FIXTURE_LOCA})
+# Tokens that pull WebGL CDN artifacts (skip APKPure XAPK by default).
+WEBGL_FIXTURES = frozenset({FIXTURE_WASM, FIXTURE_CATALOG})
 
 DEFAULT_ONLY = (FIXTURE_STARTUP, FIXTURE_GAMEDESIGN, FIXTURE_LOCA)
 
@@ -87,6 +97,8 @@ class Session:
     world: WorldEndpoints
     session_id: str
     client_version: str
+    redirect_html: str = ""
+    redirect_url: str = ""
 
 
 @dataclass
@@ -351,6 +363,8 @@ def login(
         world=world,
         session_id=str(session_id),
         client_version=client_version,
+        redirect_html=redirect_html,
+        redirect_url=str(redirect_url),
     )
 
 
@@ -417,18 +431,26 @@ def download_fixtures(
     locale: str | None = None,
     force: bool = False,
     verbose: bool = False,
-    download_xapk: bool = True,
+    download_xapk: bool | None = None,
     environ: dict[str, str] | None = None,
     client: GameApiClient | None = None,
 ) -> DownloadFixturesResult:
     """Login, fetch selected fixtures, write them under ``output/{world}/{version}/``.
 
     By default also downloads the matching XAPK from APKPure (via apkeep) as
-    ``game.xapk`` into the same directory. Pass ``download_xapk=False`` to skip
-    that step.
+    ``game.xapk`` into the same directory — unless the selection includes WebGL
+    tokens (``wasm`` / ``catalog``), which skip XAPK by default. Pass
+    ``download_xapk=False`` to skip explicitly, or ``True`` to force an XAPK
+    even alongside WebGL fixtures.
     """
-    from xapk_to_proto import apkpure
-    from xapk_to_proto.paths import GAME_XAPK_NAME
+    from xapk_to_proto import apkpure, wasm
+    from xapk_to_proto.paths import (
+        GAME_CATALOG_NAME,
+        GAME_DATA_NAME,
+        GAME_METADATA_NAME,
+        GAME_WASM_NAME,
+        GAME_XAPK_NAME,
+    )
 
     user, pwd = resolve_credentials(
         username=username, password=password, environ=environ
@@ -437,6 +459,9 @@ def download_fixtures(
     locale_value = resolve_locale_arg(locale, environ=environ)
     fixtures = parse_only(only)
     endpoints = resolve_world(world_key)
+    wants_webgl = bool(WEBGL_FIXTURES.intersection(fixtures))
+    if download_xapk is None:
+        download_xapk = not wants_webgl
 
     api = client or GameApiClient()
     session = login(api, endpoints, user, pwd, verbose=verbose)
@@ -450,7 +475,64 @@ def download_fixtures(
         print(f"  out: {out_dir}", flush=True)
 
     results: list[FixtureFileResult] = []
+    discovery_text: str | None = None
+
+    def _discovery() -> str:
+        nonlocal discovery_text
+        if discovery_text is None:
+            discovery_text = wasm.collect_discovery_text(
+                api, session, verbose=verbose
+            )
+        return discovery_text
+
     for name in fixtures:
+        if name == FIXTURE_WASM:
+            text = _discovery()
+            urls = wasm.discover_build_urls(
+                text,
+                cdn_root=wasm.resolve_cdn_root(environ=environ),
+            )
+            dl = wasm.download_webgl_build(
+                out_dir=out_dir,
+                wasm_url=urls.wasm_url,
+                data_url=urls.data_url,
+                force=force,
+                verbose=verbose,
+            )
+            for label, path in (
+                (GAME_WASM_NAME, dl.wasm),
+                (GAME_DATA_NAME, dl.data),
+                (GAME_METADATA_NAME, dl.metadata),
+            ):
+                results.append(
+                    FixtureFileResult(
+                        name=label,
+                        path=path,
+                        size=path.stat().st_size if path.is_file() else 0,
+                        skipped=dl.skipped,
+                    )
+                )
+            continue
+
+        if name == FIXTURE_CATALOG:
+            text = _discovery()
+            catalog_url = wasm.discover_catalog_url(text)
+            dl = wasm.download_webgl_catalog(
+                out_dir=out_dir,
+                catalog_url=catalog_url,
+                force=force,
+                verbose=verbose,
+            )
+            results.append(
+                FixtureFileResult(
+                    name=GAME_CATALOG_NAME,
+                    path=dl.path,
+                    size=dl.path.stat().st_size if dl.path.is_file() else 0,
+                    skipped=dl.skipped,
+                )
+            )
+            continue
+
         dest = out_dir / name
         if dest.is_file() and not force:
             results.append(

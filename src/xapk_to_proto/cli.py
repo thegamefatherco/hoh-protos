@@ -197,8 +197,12 @@ def _add_check_deps_parser(sub: argparse._SubParsersAction) -> None:
 def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "run",
-        help="Full pipeline: XAPK → descriptors.pb + .proto files",
-        description="Extract .proto schemas from a Unity IL2CPP + Google.Protobuf XAPK.",
+        help="Full pipeline: XAPK (or WebGL wasm) → descriptors.pb + .proto files",
+        description=(
+            "Extract .proto schemas from a Unity IL2CPP + Google.Protobuf build. "
+            "Default path uses an Android XAPK; pass --from-wasm for the WebGL "
+            "zz0/beta path (game.wasm + global-metadata.dat)."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Requires Unity IL2CPP + Google.Protobuf. Run `hoh-protos setup` once first.\n\n"
@@ -209,7 +213,9 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
             "Examples:\n"
             "  hoh-protos run --version 1.53.5\n"
             "  hoh-protos run fixtures/un0/1.53.5/game.xapk\n"
-            "  hoh-protos run --version 1.53.5 --world zz0\n"
+            "  hoh-protos run --from-wasm --world zz0 --version 1.54.0 "
+            "--assets --unpack-assets\n"
+            "  hoh-protos run --from-wasm --world zz0 --username U --password P\n"
         ),
     )
     p.add_argument(
@@ -219,7 +225,7 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         help=(
             "Path to .xapk file (default: fixtures/{world}/{version}/game.xapk "
-            "when --version is set)"
+            "when --version is set; ignored with --from-wasm)"
         ),
     )
     p.add_argument(
@@ -234,7 +240,34 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     )
     _add_world_version_args(
         p,
-        version_required_hint="inferred from XAPK path/filename when omitted",
+        version_required_hint=(
+            "inferred from XAPK/wasm path when omitted; required with "
+            "--from-wasm unless credentials auto-fetch the live clientVersion"
+        ),
+    )
+    p.add_argument(
+        "--from-wasm",
+        action="store_true",
+        help=(
+            "Use WebGL fixtures (game.wasm + global-metadata.dat) instead of "
+            "game.xapk; --assets reads fixtures/.../catalog.bin"
+        ),
+    )
+    p.add_argument(
+        "--username",
+        default=None,
+        help=(
+            f"Game username for auto-fetching missing WebGL fixtures with "
+            f"--from-wasm (overwritten by {game_api.ENV_USERNAME})"
+        ),
+    )
+    p.add_argument(
+        "--password",
+        default=None,
+        help=(
+            f"Game password for auto-fetching missing WebGL fixtures with "
+            f"--from-wasm (overwritten by {game_api.ENV_PASSWORD})"
+        ),
     )
     p.add_argument(
         "--work-dir",
@@ -337,8 +370,8 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--assets",
         action="store_true",
         help=(
-            "Download Addressables asset bundles from the CDN using the "
-            "catalog found in the XAPK"
+            "Download Addressables asset bundles from the CDN using the catalog "
+            "in the XAPK (or fixtures/.../catalog.bin with --from-wasm)"
         ),
     )
     p.add_argument(
@@ -351,8 +384,9 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--unpack-assets",
         action="store_true",
         help=(
-            "Extract images from the Addressables bundles shipped inside the "
-            "XAPK into {output}/unpacked (needs the assets extra)"
+            "Extract images from Addressables bundles into {output}/unpacked "
+            "(XAPK local packs, or downloaded assets/ with --from-wasm; "
+            "needs the assets extra)"
         ),
     )
     p.add_argument(
@@ -927,14 +961,15 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
 def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "download-fixtures",
-        help="Download gamedesign/loca (and optional startup) fixtures from InnoGames",
+        help="Download gamedesign/loca (and optional WebGL / startup) fixtures",
         description=(
             "Log into Heroes of History, open a browser play session, and save "
             "raw protobuf responses under fixtures/{world}/{clientVersion}/. "
             "Default downloads are startup, gamedesign, and loca-compressed, plus "
             "the matching XAPK as game.xapk. Prefer --only gamedesign,loca for "
             "contributor fixtures (startup is optional player-session PII). "
-            "Talks only to InnoGames / APKPure hosts; nothing is uploaded."
+            "For zz0/beta WebGL use --only wasm,catalog,loca (skips XAPK). "
+            "Talks only to InnoGames / APKPure / CDN hosts; nothing is uploaded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -944,6 +979,7 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
             "Examples:\n"
             "  hoh-protos download-fixtures --username USER --password PASS "
             "--only gamedesign,loca\n"
+            "  hoh-protos download-fixtures --world zz0 --only wasm,catalog,loca\n"
             "  hoh-protos download-fixtures --world zz0 --only gamedesign,loca\n"
             "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
         ),
@@ -983,9 +1019,10 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         metavar="LIST",
         help=(
-            "Comma-separated fixtures to download: startup, gamedesign, loca "
-            "(default: all three; prefer gamedesign,loca without startup for "
-            "tracked contributor fixtures)"
+            "Comma-separated fixtures: startup, gamedesign, loca, wasm, catalog "
+            "(default: startup,gamedesign,loca). wasm downloads game.wasm + "
+            "game.data + global-metadata.dat; catalog downloads catalog.bin. "
+            "Including wasm or catalog skips the APKPure XAPK by default"
         ),
     )
     p.add_argument(
@@ -1083,7 +1120,27 @@ def _resolve_emit_args(args: argparse.Namespace) -> str | None:
 
 def _resolve_run_args(args: argparse.Namespace) -> str | None:
     layout = _layout_from_args(args)
-    if args.xapk is None:
+    from_wasm = bool(getattr(args, "from_wasm", False))
+
+    if from_wasm:
+        # XAPK is unused; require --version unless credentials can discover it.
+        if layout is None:
+            import os
+
+            has_creds = bool(
+                (getattr(args, "username", None) and getattr(args, "password", None))
+                or (
+                    os.environ.get(game_api.ENV_USERNAME)
+                    and os.environ.get(game_api.ENV_PASSWORD)
+                )
+            )
+            if not has_creds:
+                return (
+                    "error: --from-wasm requires --version "
+                    "(or --username/--password to fetch the live clientVersion)"
+                )
+        args.xapk = None
+    elif args.xapk is None:
         if layout is None:
             return "error: provide an XAPK path or --version"
         args.xapk = layout.xapk
@@ -1104,6 +1161,9 @@ def _resolve_run_args(args: argparse.Namespace) -> str | None:
             args.loca_input = layout.loca
         if args.startup_input is None and layout.startup.is_file():
             args.startup_input = layout.startup
+        if from_wasm:
+            args.fixtures_dir = layout.fixtures
+            args.catalog = layout.catalog if layout.catalog.is_file() else None
     return None
 
 
@@ -1217,7 +1277,11 @@ def _resolve_download_xapk_args(args: argparse.Namespace) -> str | None:
 def _resolve_download_assets_args(args: argparse.Namespace) -> str | None:
     layout = _layout_from_args(args)
     if args.catalog is None and args.xapk is None and layout is not None:
-        args.xapk = layout.xapk
+        # Prefer a fixture catalog.bin (WebGL) when present; else XAPK.
+        if layout.catalog.is_file():
+            args.catalog = layout.catalog
+        else:
+            args.xapk = layout.xapk
     args.output = coalesce(args.output, layout.assets if layout else None)
     if layout is not None:
         args.unpack_out = coalesce(args.unpack_out, layout.unpacked)
@@ -1481,7 +1545,7 @@ def main(argv: list[str] | None = None) -> int:
                 locale=args.locale,
                 force=args.force,
                 verbose=args.verbose,
-                download_xapk=not args.skip_xapk,
+                download_xapk=False if args.skip_xapk else None,
             )
         except (RuntimeError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)

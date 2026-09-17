@@ -1,4 +1,4 @@
-"""End-to-end XAPK → descriptors.pb + .proto pipeline."""
+"""End-to-end XAPK / WebGL → descriptors.pb + .proto pipeline."""
 
 from __future__ import annotations
 
@@ -16,12 +16,19 @@ from xapk_to_proto import (
     dumper,
     emit,
     extract,
+    game_api,
     gamedesign_constants,
     loca,
     unpack,
+    wasm,
     wirefix,
 )
-from xapk_to_proto.paths import resolve_run_paths
+from xapk_to_proto.paths import (
+    DEFAULT_FIXTURES_ROOT,
+    resolve_run_paths,
+    resolve_world,
+    version_layout,
+)
 from xapk_to_proto.xapk import discover_il2cpp, extract_xapk, validate_metadata
 
 
@@ -101,7 +108,478 @@ def summarize(output: Path, proto_dir: Path) -> None:
     print(f"  proto dir:   {proto_dir}", flush=True)
 
 
-def run(args: Namespace) -> int:
+def _fixture_catalog(fixtures_dir: Path) -> Path | None:
+    """Return catalog.bin or a timestamped catalog_*.bin under fixtures_dir."""
+    from xapk_to_proto.paths import GAME_CATALOG_NAME
+
+    normalized = fixtures_dir / GAME_CATALOG_NAME
+    if normalized.is_file():
+        return normalized
+    matches = sorted(fixtures_dir.glob("catalog_*.bin"))
+    return matches[-1] if matches else None
+
+
+def _ensure_webgl_fixtures(
+    args: Namespace,
+    fixtures_dir: Path,
+    *,
+    need_catalog: bool,
+    need_loca: bool,
+) -> Path:
+    """Download missing WebGL / loca fixtures when credentials are available."""
+    from xapk_to_proto.paths import (
+        GAME_DATA_NAME,
+        GAME_METADATA_NAME,
+        GAME_WASM_NAME,
+    )
+
+    missing_wasm = not (fixtures_dir / GAME_WASM_NAME).is_file() or (
+        not (fixtures_dir / GAME_METADATA_NAME).is_file()
+        and not (fixtures_dir / GAME_DATA_NAME).is_file()
+    )
+    missing_catalog = need_catalog and _fixture_catalog(fixtures_dir) is None
+    missing_loca = need_loca and not fixtures_dir.joinpath(
+        game_api.FIXTURE_LOCA
+    ).is_file()
+
+    if not (missing_wasm or missing_catalog or missing_loca):
+        return fixtures_dir
+
+    try:
+        game_api.resolve_credentials(
+            username=getattr(args, "username", None),
+            password=getattr(args, "password", None),
+        )
+    except ValueError as e:
+        parts = []
+        if missing_wasm:
+            parts.append("game.wasm/global-metadata.dat")
+        if missing_catalog:
+            parts.append("catalog.bin")
+        if missing_loca:
+            parts.append("loca-compressed")
+        raise RuntimeError(
+            f"missing WebGL fixtures ({', '.join(parts)}) under {fixtures_dir}; "
+            f"pass --username/--password (or HOH_USERNAME/HOH_PASSWORD) to "
+            f"auto-download, or run download-fixtures --only wasm,catalog,loca. "
+            f"({e})"
+        ) from e
+
+    only: list[str] = []
+    if missing_wasm:
+        only.append(game_api.FIXTURE_WASM)
+    if missing_catalog:
+        only.append(game_api.FIXTURE_CATALOG)
+    if missing_loca:
+        only.append(game_api.FIXTURE_LOCA)
+
+    log(f"[+] Fetching missing WebGL fixtures ({','.join(only)})...")
+    # Live clientVersion may differ from --version; prefer the folder download wrote.
+    result = game_api.download_fixtures(
+        username=getattr(args, "username", None),
+        password=getattr(args, "password", None),
+        world=getattr(args, "world", None),
+        output=DEFAULT_FIXTURES_ROOT,
+        only=",".join(only),
+        force=False,
+        verbose=args.verbose,
+        download_xapk=False,
+    )
+    if result.out_dir.resolve() != fixtures_dir.resolve():
+        print(
+            f"warning: live clientVersion is {result.session.client_version}; "
+            f"using {result.out_dir} (requested {fixtures_dir})",
+            file=sys.stderr,
+        )
+    return result.out_dir
+
+
+def _run_post_emit_steps(
+    args: Namespace,
+    *,
+    output: Path,
+    descriptors: Path,
+    dump_cs: Path,
+    catalog: Path | None,
+    xapk_root: Path | None,
+) -> None:
+    definition_dirs: list[Path] = []
+    gd_input = getattr(args, "gamedesign_input", None)
+    want_constants = bool(getattr(args, "gamedesign_constants", False) or gd_input)
+
+    if want_constants:
+        gc_out = (
+            getattr(args, "gamedesign_constants_out", None)
+            or output / "gamedesign" / "constants"
+        ).resolve()
+        log("[+] Emitting GameDesign string enums...")
+        gc_result = gamedesign_constants.run_gamedesign_constants_export(
+            dump_cs=dump_cs,
+            out_dir=gc_out,
+        )
+        for warning in gc_result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"  gamedesign/constants: {gc_result.enum_count} enums "
+            f"-> {gc_out}",
+            flush=True,
+        )
+
+    if gd_input is not None:
+        gd_path = Path(gd_input).resolve()
+        gd_out = (
+            getattr(args, "gamedesign_out", None) or output / "gamedesign"
+        ).resolve()
+        log("[+] Decoding gamedesign definitions...")
+        decoded = _decode_definitions_blob(
+            descriptors=descriptors,
+            blob=gd_path,
+            dest=gd_out,
+            verbose=args.verbose,
+        )
+        if decoded is not None:
+            definition_dirs.append(decoded)
+
+    startup_input = getattr(args, "startup_input", None)
+    if startup_input is not None:
+        startup_path = Path(startup_input).resolve()
+        startup_out = (output / "startup").resolve()
+        log("[+] Decoding startup definitions...")
+        decoded = _decode_definitions_blob(
+            descriptors=descriptors,
+            blob=startup_path,
+            dest=startup_out,
+            verbose=args.verbose,
+        )
+        if decoded is not None:
+            definition_dirs.append(decoded)
+
+    defs_inputs = getattr(args, "definitions_input", None)
+    if defs_inputs:
+        log("[+] Decoding extra definition blobs...")
+        for blob in defs_inputs:
+            blob = Path(blob).resolve()
+            dest = (output / blob.stem).resolve()
+            if dest in definition_dirs:
+                continue
+            decoded = _decode_definitions_blob(
+                descriptors=descriptors,
+                blob=blob,
+                dest=dest,
+                verbose=args.verbose,
+            )
+            if decoded is not None:
+                definition_dirs.append(decoded)
+
+    loca_input = getattr(args, "loca_input", None)
+    if loca_input is not None:
+        loca_path = Path(loca_input).resolve()
+        loca_out = (getattr(args, "loca_out", None) or output / "loca").resolve()
+        if not loca_path.is_file():
+            print(f"warning: loca input not found: {loca_path}", file=sys.stderr)
+        else:
+            log("[+] Decoding loca blob...")
+            loca_result = loca.run_loca_export(
+                descriptors_pb=descriptors,
+                dump_cs=dump_cs,
+                input_path=loca_path,
+                out_dir=loca_out,
+                verbose=args.verbose,
+            )
+            for warning in loca_result.warnings:
+                print(f"warning: {warning}", file=sys.stderr)
+            print(
+                f"  loca[{loca_result.locale}]: {loca_result.entry_count} entries "
+                f"-> {loca_out}",
+                flush=True,
+            )
+
+    assets_out: Path | None = None
+    if getattr(args, "assets", False):
+        assets_out = (
+            getattr(args, "assets_out", None) or output / "assets"
+        ).resolve()
+        log("[+] Downloading asset bundles...")
+        if catalog is not None:
+            assets_result = assets.run_assets_download(
+                catalog=catalog,
+                out_dir=assets_out,
+                verbose=args.verbose,
+            )
+        elif xapk_root is not None:
+            catalog_path = assets.find_catalog(xapk_root)
+            assets_result = assets.run_assets_download(
+                catalog=catalog_path,
+                out_dir=assets_out,
+                verbose=args.verbose,
+            )
+        else:
+            raise FileNotFoundError(
+                "catalog.bin required for --assets (fixtures/.../catalog.bin "
+                "with --from-wasm, or an XAPK catalog otherwise)"
+            )
+        for warning in assets_result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"  assets: {assets_result.downloaded} downloaded, "
+            f"{assets_result.skipped_existing} already present, "
+            f"{len(assets_result.failed)} failed -> {assets_out}",
+            flush=True,
+        )
+
+    unpack_out: Path | None = None
+    if getattr(args, "unpack_assets", False):
+        unpack_out = (
+            getattr(args, "unpack_assets_out", None) or output / "unpacked"
+        ).resolve()
+        log("[+] Unpacking asset bundles...")
+        if xapk_root is not None and catalog is None:
+            bundle_dir = unpack.find_local_bundle_dir(xapk_root)
+        else:
+            bundle_dir = assets_out or (output / "assets")
+            if not bundle_dir.is_dir():
+                raise FileNotFoundError(
+                    f"bundle directory not found: {bundle_dir} "
+                    "(run with --assets first, or pass downloaded bundles)"
+                )
+        unpack_result = unpack.run_unpack(
+            bundles=bundle_dir,
+            out_dir=unpack_out,
+            verbose=args.verbose,
+        )
+        for warning in unpack_result.warnings[:20]:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"  unpacked: {unpack_result.images_written} image(s) from "
+            f"{unpack_result.bundles_selected} bundle(s) "
+            f"({unpack_result.bundles_failed} failed) -> {unpack_out}",
+            flush=True,
+        )
+
+    if getattr(args, "link_assets", False):
+        link_out = (
+            getattr(args, "link_assets_out", None) or output / "asset_links"
+        ).resolve()
+        index_path = (
+            getattr(args, "link_assets_index", None)
+            or (unpack_out or output / "unpacked") / unpack.INDEX_FILENAME
+        )
+        if not definition_dirs:
+            print(
+                "warning: --link-assets needs decoded definitions "
+                "(--gamedesign-input and/or --startup-input); skipped",
+                file=sys.stderr,
+            )
+        elif not Path(index_path).is_file():
+            print(
+                f"warning: asset index not found: {index_path}; "
+                "run with --unpack-assets first",
+                file=sys.stderr,
+            )
+        else:
+            log("[+] Linking assets to definitions...")
+            link_result = assetlink.run_link_export(
+                index_path=Path(index_path).resolve(),
+                descriptors_pb=descriptors,
+                definition_dirs=definition_dirs,
+                out_dir=link_out,
+                verbose=args.verbose,
+            )
+            totals = link_result.totals()
+            print(
+                f"  asset links: {totals['image']} image, "
+                f"{totals['bundle_only']} bundle-only, "
+                f"{totals['definition_ref']} gamedesign id, "
+                f"{totals['miss']} unresolved -> {link_out}",
+                flush=True,
+            )
+
+
+def _run_from_wasm(args: Namespace) -> int:
+    world = resolve_world(getattr(args, "world", None))
+    version = getattr(args, "version", None)
+
+    if version:
+        layout = version_layout(version, world=world)
+        fixtures_dir = Path(
+            getattr(args, "fixtures_dir", None) or layout.fixtures
+        ).resolve()
+        output = (
+            Path(args.output).resolve()
+            if getattr(args, "output", None) is not None
+            else layout.root
+        )
+    else:
+        # Credentials path: download first to learn clientVersion.
+        fixtures_root = DEFAULT_FIXTURES_ROOT.resolve()
+        need_catalog = bool(getattr(args, "assets", False))
+        need_loca = getattr(args, "loca_input", None) is None
+        log("[+] Resolving live WebGL clientVersion via login...")
+        only = [game_api.FIXTURE_WASM]
+        if need_catalog:
+            only.append(game_api.FIXTURE_CATALOG)
+        if need_loca:
+            only.append(game_api.FIXTURE_LOCA)
+        result = game_api.download_fixtures(
+            username=getattr(args, "username", None),
+            password=getattr(args, "password", None),
+            world=world,
+            output=fixtures_root,
+            only=",".join(only),
+            force=False,
+            verbose=args.verbose,
+            download_xapk=False,
+        )
+        version = result.session.client_version
+        fixtures_dir = result.out_dir
+        layout = version_layout(version, world=world)
+        output = (
+            Path(args.output).resolve()
+            if getattr(args, "output", None) is not None
+            else layout.root
+        )
+        # Auto-wire fixtures now that the version folder exists.
+        if getattr(args, "gamedesign_input", None) is None and layout.gamedesign.is_file():
+            args.gamedesign_input = layout.gamedesign
+        if getattr(args, "loca_input", None) is None and layout.loca.is_file():
+            args.loca_input = layout.loca
+        if getattr(args, "startup_input", None) is None and layout.startup.is_file():
+            args.startup_input = layout.startup
+
+    vlog(f"  world={world} version={version} output={output}", args.verbose)
+
+    need_catalog = bool(getattr(args, "assets", False))
+    # Match CLI auto-wire: fetch loca when the caller did not pass --loca-input
+    # and the default fixture is absent (same pattern as gamedesign).
+    need_loca = getattr(args, "loca_input", None) is None and not (
+        fixtures_dir / game_api.FIXTURE_LOCA
+    ).is_file()
+    # Only auto-fetch loca when credentials were given (otherwise leave unwired).
+    try:
+        game_api.resolve_credentials(
+            username=getattr(args, "username", None),
+            password=getattr(args, "password", None),
+        )
+        can_fetch = True
+    except ValueError:
+        can_fetch = False
+        need_loca = False
+
+    fixtures_dir = _ensure_webgl_fixtures(
+        args,
+        fixtures_dir,
+        need_catalog=need_catalog,
+        need_loca=need_loca and can_fetch,
+    )
+    # Re-wire loca after a possible download.
+    if getattr(args, "loca_input", None) is None:
+        loca_path = fixtures_dir / game_api.FIXTURE_LOCA
+        if loca_path.is_file():
+            args.loca_input = loca_path
+
+    catalog: Path | None = None
+    if need_catalog:
+        catalog = _fixture_catalog(fixtures_dir)
+        if catalog is None:
+            raise FileNotFoundError(
+                f"catalog.bin not found under {fixtures_dir} "
+                "(needed for --assets; download with --only catalog)"
+            )
+    elif getattr(args, "catalog", None) is not None:
+        catalog = Path(args.catalog).resolve()
+
+    il2cpp_out = output / "il2cpp"
+    proto_dir = output / "proto"
+    descriptors = output / "descriptors.pb"
+    dump_cs = il2cpp_out / "dump.cs"
+    work_dir = (args.work_dir or output / ".work").resolve()
+
+    try:
+        check_python_deps()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    output.mkdir(parents=True, exist_ok=True)
+
+    try:
+        log("[1/4] Locating WebGL IL2CPP binaries...")
+        libil2cpp, metadata = wasm.discover_wasm_il2cpp(fixtures_dir)
+        validate_metadata(metadata)
+        vlog(f"  wasm:     {libil2cpp}", args.verbose)
+        vlog(f"  metadata: {metadata}", args.verbose)
+
+        if args.skip_dump and dump_cs.is_file():
+            log("[2/4] Skipping Il2CppDumper (--skip-dump, dump.cs exists)")
+        else:
+            log("[2/4] Running Il2CppDumper (wasm)...")
+            dumper.run_il2cpp_dumper(libil2cpp, metadata, il2cpp_out, args.verbose)
+
+        if not dump_cs.is_file():
+            print("dump.cs missing after Il2CppDumper", file=sys.stderr)
+            return 1
+        dumper.validate_dump(dump_cs)
+
+        log("[3/4] Extracting protobuf descriptors...")
+        stats = extract.run(metadata, dump_cs, descriptors)
+        vlog(
+            f"  embedded={stats['embedded']} rebuilt={stats['rebuilt']} "
+            f"merged={stats['merged']}",
+            args.verbose,
+        )
+        if stats["merged"] == 0:
+            raise RuntimeError(
+                "no protobuf descriptors extracted "
+                f"(embedded={stats['embedded']} rebuilt={stats['rebuilt']})"
+            )
+
+        wire_fix_input = _resolve_wire_fix_input(args)
+        if wire_fix_input is not None:
+            log("[3b/4] Correcting wire types from sample blob...")
+            wf_report = wirefix.run_wirefix(
+                descriptors,
+                wire_fix_input,
+                verbose=args.verbose,
+            )
+            vlog(
+                f"  wirefix: {wf_report.fixed_count} correction(s) "
+                f"in {wf_report.iterations} iteration(s)",
+                args.verbose,
+            )
+
+        log("[4/4] Emitting .proto files...")
+        emit_result = emit.run(descriptors, proto_dir)
+        bundle_count = emit.write_descriptor_bundle(
+            descriptors, output / "descriptors_bundle.pb"
+        )
+        vlog(
+            f"  wrote {emit_result.game_files} game + "
+            f"{emit_result.well_known_files} well-known .proto files",
+            args.verbose,
+        )
+        vlog(f"  descriptors_bundle.pb: {bundle_count} files", args.verbose)
+
+        summarize(output, proto_dir)
+
+        _run_post_emit_steps(
+            args,
+            output=output,
+            descriptors=descriptors,
+            dump_cs=dump_cs,
+            catalog=catalog,
+            xapk_root=None,
+        )
+
+        if not args.keep_work and work_dir.exists():
+            shutil.rmtree(work_dir)
+
+        return 0
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_from_xapk(args: Namespace) -> int:
     xapk = args.xapk.resolve()
     if not xapk.is_file():
         print(f"xapk not found: {xapk}", file=sys.stderr)
@@ -158,7 +636,8 @@ def run(args: Namespace) -> int:
         log("[4/5] Extracting protobuf descriptors...")
         stats = extract.run(metadata, dump_cs, descriptors)
         vlog(
-            f"  embedded={stats['embedded']} rebuilt={stats['rebuilt']} merged={stats['merged']}",
+            f"  embedded={stats['embedded']} rebuilt={stats['rebuilt']} "
+            f"merged={stats['merged']}",
             args.verbose,
         )
         missing = stats.get("missing_well_known") or []
@@ -198,179 +677,14 @@ def run(args: Namespace) -> int:
 
         summarize(output, proto_dir)
 
-        definition_dirs: list[Path] = []
-        gd_input = getattr(args, "gamedesign_input", None)
-        want_constants = bool(getattr(args, "gamedesign_constants", False) or gd_input)
-
-        if want_constants:
-            gc_out = (
-                getattr(args, "gamedesign_constants_out", None)
-                or output / "gamedesign" / "constants"
-            ).resolve()
-            log("[+] Emitting GameDesign string enums...")
-            gc_result = gamedesign_constants.run_gamedesign_constants_export(
-                dump_cs=dump_cs,
-                out_dir=gc_out,
-            )
-            for warning in gc_result.warnings:
-                print(f"warning: {warning}", file=sys.stderr)
-            print(
-                f"  gamedesign/constants: {gc_result.enum_count} enums "
-                f"-> {gc_out}",
-                flush=True,
-            )
-
-        if gd_input is not None:
-            gd_path = Path(gd_input).resolve()
-            gd_out = (
-                getattr(args, "gamedesign_out", None) or output / "gamedesign"
-            ).resolve()
-            log("[+] Decoding gamedesign definitions...")
-            decoded = _decode_definitions_blob(
-                descriptors=descriptors,
-                blob=gd_path,
-                dest=gd_out,
-                verbose=args.verbose,
-            )
-            if decoded is not None:
-                definition_dirs.append(decoded)
-
-        startup_input = getattr(args, "startup_input", None)
-        if startup_input is not None:
-            startup_path = Path(startup_input).resolve()
-            startup_out = (output / "startup").resolve()
-            log("[+] Decoding startup definitions...")
-            decoded = _decode_definitions_blob(
-                descriptors=descriptors,
-                blob=startup_path,
-                dest=startup_out,
-                verbose=args.verbose,
-            )
-            if decoded is not None:
-                definition_dirs.append(decoded)
-
-        defs_inputs = getattr(args, "definitions_input", None)
-        if defs_inputs:
-            log("[+] Decoding extra definition blobs...")
-            for blob in defs_inputs:
-                blob = Path(blob).resolve()
-                dest = (output / blob.stem).resolve()
-                # Avoid clobbering dedicated gamedesign/startup dirs when the
-                # same blob is also passed via --definitions-input.
-                if dest in definition_dirs:
-                    continue
-                decoded = _decode_definitions_blob(
-                    descriptors=descriptors,
-                    blob=blob,
-                    dest=dest,
-                    verbose=args.verbose,
-                )
-                if decoded is not None:
-                    definition_dirs.append(decoded)
-
-        loca_input = getattr(args, "loca_input", None)
-        if loca_input is not None:
-            loca_path = Path(loca_input).resolve()
-            loca_out = (
-                getattr(args, "loca_out", None) or output / "loca"
-            ).resolve()
-            if not loca_path.is_file():
-                print(f"warning: loca input not found: {loca_path}", file=sys.stderr)
-            else:
-                log("[+] Decoding loca blob...")
-                loca_result = loca.run_loca_export(
-                    descriptors_pb=descriptors,
-                    dump_cs=dump_cs,
-                    input_path=loca_path,
-                    out_dir=loca_out,
-                    verbose=args.verbose,
-                )
-                for warning in loca_result.warnings:
-                    print(f"warning: {warning}", file=sys.stderr)
-                print(
-                    f"  loca[{loca_result.locale}]: {loca_result.entry_count} entries "
-                    f"-> {loca_out}",
-                    flush=True,
-                )
-
-        if getattr(args, "assets", False):
-            assets_out = (
-                getattr(args, "assets_out", None) or output / "assets"
-            ).resolve()
-            log("[+] Downloading asset bundles...")
-            catalog = assets.find_catalog(xapk_root)
-            assets_result = assets.run_assets_download(
-                catalog=catalog,
-                out_dir=assets_out,
-                verbose=args.verbose,
-            )
-            for warning in assets_result.warnings:
-                print(f"warning: {warning}", file=sys.stderr)
-            print(
-                f"  assets: {assets_result.downloaded} downloaded, "
-                f"{assets_result.skipped_existing} already present, "
-                f"{len(assets_result.failed)} failed -> {assets_out}",
-                flush=True,
-            )
-
-        unpack_out: Path | None = None
-        if getattr(args, "unpack_assets", False):
-            unpack_out = (
-                getattr(args, "unpack_assets_out", None) or output / "unpacked"
-            ).resolve()
-            log("[+] Unpacking asset bundles...")
-            bundle_dir = unpack.find_local_bundle_dir(xapk_root)
-            unpack_result = unpack.run_unpack(
-                bundles=bundle_dir,
-                out_dir=unpack_out,
-                verbose=args.verbose,
-            )
-            for warning in unpack_result.warnings[:20]:
-                print(f"warning: {warning}", file=sys.stderr)
-            print(
-                f"  unpacked: {unpack_result.images_written} image(s) from "
-                f"{unpack_result.bundles_selected} bundle(s) "
-                f"({unpack_result.bundles_failed} failed) -> {unpack_out}",
-                flush=True,
-            )
-
-        if getattr(args, "link_assets", False):
-            link_out = (
-                getattr(args, "link_assets_out", None) or output / "asset_links"
-            ).resolve()
-            index_path = (
-                getattr(args, "link_assets_index", None)
-                or (unpack_out or output / "unpacked") / unpack.INDEX_FILENAME
-            )
-            if not definition_dirs:
-                print(
-                    "warning: --link-assets needs decoded definitions "
-                    "(--gamedesign-input and/or --startup-input); skipped",
-                    file=sys.stderr,
-                )
-            elif not Path(index_path).is_file():
-                print(
-                    f"warning: asset index not found: {index_path}; "
-                    "run with --unpack-assets first",
-                    file=sys.stderr,
-                )
-            else:
-                log("[+] Linking assets to definitions...")
-                link_result = assetlink.run_link_export(
-                    index_path=Path(index_path).resolve(),
-                    descriptors_pb=descriptors,
-                    definition_dirs=definition_dirs,
-                    out_dir=link_out,
-                    verbose=args.verbose,
-                )
-                totals = link_result.totals()
-                print(
-                    f"  asset links: {totals['image']} image, "
-                    f"{totals['bundle_only']} bundle-only, "
-                    f"{totals['definition_ref']} gamedesign id, "
-                    f"{totals['miss']} unresolved -> {link_out}",
-                    flush=True,
-                )
+        _run_post_emit_steps(
+            args,
+            output=output,
+            descriptors=descriptors,
+            dump_cs=dump_cs,
+            catalog=None,
+            xapk_root=xapk_root,
+        )
 
         if not args.keep_work and work_dir.exists():
             shutil.rmtree(work_dir)
@@ -379,3 +693,9 @@ def run(args: Namespace) -> int:
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+
+
+def run(args: Namespace) -> int:
+    if getattr(args, "from_wasm", False):
+        return _run_from_wasm(args)
+    return _run_from_xapk(args)

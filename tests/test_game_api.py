@@ -74,6 +74,11 @@ def test_parse_only_defaults_and_aliases():
         game_api.FIXTURE_LOCA,
     )
     assert parse_only(["loca-compressed"]) == (game_api.FIXTURE_LOCA,)
+    assert parse_only("wasm,catalog,loca") == (
+        game_api.FIXTURE_WASM,
+        game_api.FIXTURE_CATALOG,
+        game_api.FIXTURE_LOCA,
+    )
 
 
 def test_parse_only_rejects_unknown():
@@ -316,3 +321,85 @@ def test_download_fixtures_includes_game_xapk(tmp_path: Path, monkeypatch):
     assert result.xapk.path == tmp_path / "un0" / "1.50.3" / "game.xapk"
     assert result.xapk.path.read_bytes() == b"xapk-bytes"
     assert any(f.name == "game.xapk" for f in result.files)
+
+
+def test_download_fixtures_webgl_skips_xapk_by_default(tmp_path: Path, monkeypatch):
+    redirect_html = (
+        'const clientVersion = "1.54.0";\n'
+        'codeUrl: "https://heczz.innogamescdn.com/Build/aabb.wasm";\n'
+        'dataUrl: "https://heczz.innogamescdn.com/Build/ccdd.data";\n'
+        "catalog_2026.09.14.13.40.12.bin\n"
+    )
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {"redirectUrl": "https://beta.heroesgame.com/play"}
+                ).encode(),
+            ),
+            ("GET", "/play"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-zz"}).encode(),
+            ),
+            ("POST", "/game/loca"): (200, {}, b"loca"),
+            ("GET", "zz0.heroesofhistorygame.com"): (200, {}, redirect_html.encode()),
+        }
+    )
+
+    from xapk_to_proto.xapk import METADATA_MAGIC
+    import struct
+
+    fake_meta = struct.pack("<II", METADATA_MAGIC, 39) + b"\x00" * 32
+    # Minimal UnityWebData with metadata member.
+    from tests.test_wasm import _pack_unity_web_data
+
+    data_blob = _pack_unity_web_data(
+        {"Il2CppData/Metadata/global-metadata.dat": fake_meta}
+    )
+
+    def fake_cdn_get(url: str) -> bytes:
+        if url.endswith(".wasm"):
+            return b"\x00asmfake"
+        if url.endswith(".data"):
+            return data_blob
+        if url.endswith(".bin"):
+            return b"catalog-bytes"
+        raise AssertionError(url)
+
+    monkeypatch.setattr("xapk_to_proto.wasm._cdn_get", fake_cdn_get)
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.collect_discovery_text",
+        lambda *a, **k: redirect_html,
+    )
+
+    xapk_calls: list[object] = []
+
+    def fake_download_xapk(**kwargs):
+        xapk_calls.append(kwargs)
+        raise AssertionError("XAPK should be skipped for wasm/catalog")
+
+    monkeypatch.setattr("xapk_to_proto.apkpure.download_xapk", fake_download_xapk)
+
+    result = download_fixtures(
+        username="u",
+        password="p",
+        world="zz0",
+        output=tmp_path,
+        only="wasm,catalog,loca",
+        force=True,
+        client=client,
+        environ={},
+    )
+    assert xapk_calls == []
+    assert result.xapk is None
+    by_name = {f.name: f for f in result.files}
+    assert "game.wasm" in by_name
+    assert "game.data" in by_name
+    assert "global-metadata.dat" in by_name
+    assert "catalog.bin" in by_name
+    assert "loca-compressed" in by_name
+    assert by_name["catalog.bin"].path.read_bytes() == b"catalog-bytes"

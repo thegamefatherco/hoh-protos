@@ -1,9 +1,12 @@
 # hoh-protos
 
-Extract `.proto` schemas from Unity **IL2CPP** Android **XAPK** builds that ship
+Extract `.proto` schemas from Unity **IL2CPP** builds that ship
 **Google.Protobuf** descriptors (built for Heroes of History and similar games).
+The default path uses an Android **XAPK**; `--from-wasm` uses the WebGL
+`game.wasm` + `global-metadata.dat` path for beta (`zz0`) when no XAPK is
+available.
 
-The `hoh-protos` CLI unpacks the XAPK, runs a
+The `hoh-protos` CLI unpacks the XAPK (or WebGL fixtures), runs a
 [v39-capable Il2CppDumper fork](https://github.com/Windows81/Il2CppDumper)
 (Unity 6000.x / metadata v35–v39; stock
 [Perfare](https://github.com/Perfare/Il2CppDumper) does not support these),
@@ -21,6 +24,7 @@ human-readable `.proto` files plus a `descriptors.pb` blob.
 - [Commands](#commands)
   - [Downloading the XAPK](#downloading-the-xapk)
   - [Downloading server fixtures](#downloading-server-fixtures)
+  - [Beta / WebGL (`zz0`) without an Android XAPK](#beta--webgl-zz0-without-an-android-xapk)
   - [Downloading asset bundles](#downloading-asset-bundles)
   - [Unpacking images from asset bundles](#unpacking-images-from-asset-bundles)
   - [Linking assets to game data](#linking-assets-to-game-data)
@@ -35,11 +39,10 @@ human-readable `.proto` files plus a `descriptors.pb` blob.
 ## Requirements
 
 - **Python** 3.10 or newer
-- A **`.xapk`** from a Unity IL2CPP build that uses Google.Protobuf (embedded
-  descriptors in `global-metadata.dat` and/or types visible in `dump.cs`) —
-  `hoh-protos download-xapk` can fetch one via
-  [apkeep](https://github.com/EFForg/apkeep) (`brew install apkeep` on macOS;
-  otherwise install from that repo)
+- A Unity IL2CPP + Google.Protobuf build, either:
+  - an Android **`.xapk`** (`hoh-protos download-xapk` / default `run`), or
+  - WebGL **`game.wasm` + `game.data`** (`download-fixtures --only wasm` /
+    `run --from-wasm`, typically for `zz0`)
 - Network access the first time you run `hoh-protos setup` (downloads
   Il2CppDumper into your user cache; also .NET 9 on non-Windows). On Windows,
   install .NET 9 manually. Use `hoh-protos check-deps` to verify.
@@ -238,9 +241,10 @@ default.
 | --- | --- |
 | `hoh-protos setup` | Install Il2CppDumper (+ apkeep on Linux/Windows); locate .NET 9; print per-dep status |
 | `hoh-protos check-deps` | Report whether .NET 9, Il2CppDumper, and apkeep are available |
-| `hoh-protos download-fixtures` | Download server blobs (+ optional XAPK) under `fixtures/{world}/{clientVersion}/`. Default set is startup/gamedesign/loca; prefer `--only gamedesign,loca` for contributors |
+| `hoh-protos download-fixtures` | Download server blobs (+ optional XAPK or WebGL wasm/catalog) under `fixtures/{world}/{clientVersion}/`. Prefer `--only gamedesign,loca` (un0) or `--only wasm,catalog,loca` (zz0) |
 | `hoh-protos download-xapk --version V` | Download XAPK → `fixtures/{world}/{version}/game.xapk` |
-| `hoh-protos run --version V` | Full pipeline (default output: `output/{world}/{version}/`) |
+| `hoh-protos run --version V` | Full pipeline from XAPK (default output: `output/{world}/{version}/`) |
+| `hoh-protos run --from-wasm --version V` | Full pipeline from WebGL `game.wasm` + metadata (zz0/beta) |
 | `hoh-protos GAME.xapk` | Shorthand for `run` |
 | `hoh-protos download-assets --version V` | Download Addressables bundles → `output/.../assets` |
 | `hoh-protos unpack-assets --version V` | Extract images → `output/.../unpacked` (default source: `.../assets`) |
@@ -292,6 +296,7 @@ Only InnoGames / APKPure hosts are contacted; nothing is uploaded elsewhere.
 ```bash
 uv run hoh-protos download-fixtures --username USER --password PASS
 uv run hoh-protos download-fixtures --world zz0 --only gamedesign,loca
+uv run hoh-protos download-fixtures --world zz0 --only wasm,catalog,loca
 uv run hoh-protos download-fixtures --skip-xapk   # protobuf blobs only
 HOH_USERNAME=… HOH_PASSWORD=… uv run hoh-protos download-fixtures -v
 ```
@@ -301,6 +306,54 @@ Credentials: `--username` / `--password`, or env `HOH_USERNAME` / `HOH_PASSWORD`
 likewise overwrite `--world` / `--locale`. Default world is `un0` (production);
 `zz0` / `zz1` target beta (`beta.heroesgame.com` / `zz0`/`zz1` hosts). Existing
 files are left alone unless you pass `--force`.
+
+`--only` tokens:
+
+| Token | Writes |
+| --- | --- |
+| `startup` / `gamedesign` / `loca` | Protobuf API blobs (same as before) |
+| `wasm` | `game.wasm`, `game.data`, extracted `global-metadata.dat` from the CDN Build |
+| `catalog` | Addressables `catalog.bin` (timestamped CDN name normalized locally) |
+
+Including `wasm` or `catalog` **skips** the APKPure XAPK download by default
+(WebGL replaces it for that fixture set).
+
+### Beta / WebGL (`zz0`) without an Android XAPK
+
+Beta often has no usable APKPure XAPK. Use the WebGL IL2CPP path instead:
+
+```bash
+# Fetch wasm + catalog + loca for the live beta clientVersion
+uv run hoh-protos download-fixtures --world zz0 --only wasm,catalog,loca \
+  --username USER --password PASS
+
+# Protos (+ optional CDN assets / unpack) from fixtures
+uv run hoh-protos run --from-wasm --world zz0 --version 1.54.0 \
+  --assets --unpack-assets
+
+# Or let run auto-fetch missing WebGL pieces when credentials are set
+uv run hoh-protos run --from-wasm --world zz0 --username USER --password PASS \
+  --assets --unpack-assets
+```
+
+`--from-wasm` ignores `game.xapk`, dumps `game.wasm` + `global-metadata.dat`
+(extracting metadata from `game.data` when needed), then runs the same
+extract / emit / loca / assets path as the XAPK pipeline. With `--assets`, the
+catalog source is `fixtures/{world}/{version}/catalog.bin` (not the XAPK
+Addressables pack). Web metadata often has **zero** embedded FileDescriptorProtos,
+so schemas come from `dump.cs` rebuild — Il2CppDumper auto-scan can still fail
+on some Unity 6 WASM builds; the CLI surfaces that clearly.
+
+Fixture layout for a WebGL run:
+
+```text
+fixtures/zz0/<version>/
+├── game.wasm
+├── game.data
+├── global-metadata.dat   # extracted from game.data
+├── catalog.bin           # or catalog_YYYY.MM.DD.HH.MM.SS.bin
+└── loca-compressed       # optional; auto-wired like un0
+```
 
 ### Downloading asset bundles
 
@@ -314,7 +367,8 @@ uv run hoh-protos download-assets --catalog ./catalog.bin -o ./assets --only cle
 ```
 
 With `--version`, the catalog source defaults to
-`fixtures/{world}/{version}/game.xapk` and bundles land in
+`fixtures/{world}/{version}/catalog.bin` when that file exists, otherwise
+`fixtures/{world}/{version}/game.xapk`. Bundles land in
 `output/{world}/{version}/assets`. `--xapk` / `--catalog` / `-o` override those
 defaults.
 
@@ -566,10 +620,11 @@ uv run python -m xapk_to_proto --help
 
 | Variable | Effect |
 | --- | --- |
-| `HOH_USERNAME` | Game username for `download-fixtures` (**overwrites** `--username`) |
-| `HOH_PASSWORD` | Game password for `download-fixtures` (**overwrites** `--password`) |
+| `HOH_USERNAME` | Game username for `download-fixtures` / `run --from-wasm` (**overwrites** `--username`) |
+| `HOH_PASSWORD` | Game password for `download-fixtures` / `run --from-wasm` (**overwrites** `--password`) |
 | `HOH_WORLD` | World key (`un0` / `zz0` / …); overwrites `--world` where applicable |
 | `HOH_LOCALE` | Locale for loca download (default `en_DK`); overwrites `--locale` |
+| `HOH_CDN_URL` | WebGL Build CDN root (default `https://heczz.innogamescdn.com/`) |
 | `HOH_VERSION` | Acceptance-test version pin (default `1.50.3` when unset) |
 | `XAPK_TO_PROTO_DOTNET` | Path to a `dotnet` executable (skips cached runtime) |
 | `XAPK_TO_PROTO_DUMPER` | Path to `Il2CppDumper.dll` (skips cached dumper) |
