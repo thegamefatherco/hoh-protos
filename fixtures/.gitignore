@@ -5,4 +5,4 @@
 !un0/*/
 !un0/*/gamedesign
 !un0/*/loca-compressed
-!un0/*/startup
+# startup intentionally not allowlisted (player-session PII; optional local only)

@@ -3,13 +3,13 @@ run = "hoh-protos setup"
 
 [tasks.generate]
 usage = '''
-arg "<xapk_path>" help="Path to the XAPK file" default="./fixtures/un0/1.50.3/game.xapk"
+arg "<xapk_path>" help="Path to the XAPK file" default="./fixtures/un0/1.53.5/game.xapk"
 '''
 run = "hoh-protos run {{usage.xapk_path}}"
 
 [tasks.lint]
 usage = '''
-arg "<output_dir>" help="Output directory" default="./output/un0/1.50.3/proto"
+arg "<output_dir>" help="Output directory" default="./output/un0/1.53.5/proto"
 arg "<report_file>" help="Report file" default="./protolint_report.json"
 '''
 run = "protolint lint -output_file={{usage.report_file}} -reporter=json {{usage.output_dir}}"

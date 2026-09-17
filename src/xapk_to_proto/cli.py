@@ -102,10 +102,10 @@ def _add_extract_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos extract --metadata global-metadata.dat --version 1.50.3\n"
+            "  hoh-protos extract --metadata global-metadata.dat --version 1.53.5\n"
             "  hoh-protos extract --metadata global-metadata.dat "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--out output/un0/1.50.3/descriptors.pb\n"
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--out output/un0/1.53.5/descriptors.pb\n"
         ),
     )
     _add_world_version_args(p)
@@ -134,9 +134,9 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos emit --version 1.50.3\n"
-            "  hoh-protos emit --in output/un0/1.50.3/descriptors.pb "
-            "--out-dir output/un0/1.50.3/proto\n"
+            "  hoh-protos emit --version 1.53.5\n"
+            "  hoh-protos emit --in output/un0/1.53.5/descriptors.pb "
+            "--out-dir output/un0/1.53.5/proto\n"
         ),
     )
     _add_world_version_args(p)
@@ -207,9 +207,9 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
             "fixture default) decodes full definitions, runs wirefix, and emits "
             "GameDesign constants.\n\n"
             "Examples:\n"
-            "  hoh-protos run --version 1.50.3\n"
-            "  hoh-protos run fixtures/un0/1.50.3/game.xapk\n"
-            "  hoh-protos run --version 1.50.3 --world zz0\n"
+            "  hoh-protos run --version 1.53.5\n"
+            "  hoh-protos run fixtures/un0/1.53.5/game.xapk\n"
+            "  hoh-protos run --version 1.53.5 --world zz0\n"
         ),
     )
     p.add_argument(
@@ -395,10 +395,10 @@ def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos gamedesign --version 1.50.3\n"
-            "  hoh-protos gamedesign --descriptors output/un0/1.50.3/descriptors.pb "
-            "--input fixtures/un0/1.50.3/gamedesign "
-            "--out-dir output/un0/1.50.3/gamedesign\n"
+            "  hoh-protos gamedesign --version 1.53.5\n"
+            "  hoh-protos gamedesign --descriptors output/un0/1.53.5/descriptors.pb "
+            "--input fixtures/un0/1.53.5/gamedesign "
+            "--out-dir output/un0/1.53.5/gamedesign\n"
         ),
     )
     _add_world_version_args(p)
@@ -437,10 +437,10 @@ def _add_gamedesign_constants_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos gamedesign-constants --version 1.50.3\n"
+            "  hoh-protos gamedesign-constants --version 1.53.5\n"
             "  hoh-protos gamedesign-constants "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--out-dir output/un0/1.50.3/gamedesign/constants\n"
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--out-dir output/un0/1.53.5/gamedesign/constants\n"
         ),
     )
     _add_world_version_args(p)
@@ -472,9 +472,9 @@ def _add_wirefix_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos wirefix --version 1.50.3\n"
-            "  hoh-protos wirefix --descriptors output/un0/1.50.3/descriptors.pb "
-            "--input fixtures/un0/1.50.3/gamedesign\n"
+            "  hoh-protos wirefix --version 1.53.5\n"
+            "  hoh-protos wirefix --descriptors output/un0/1.53.5/descriptors.pb "
+            "--input fixtures/un0/1.53.5/gamedesign\n"
         ),
     )
     _add_world_version_args(p)
@@ -504,11 +504,12 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos definitions --version 1.50.3\n"
-            "  hoh-protos definitions --descriptors output/un0/1.50.3/descriptors.pb "
-            "--out-dir output/un0/1.50.3 "
-            "--input fixtures/un0/1.50.3/startup "
-            "--input fixtures/un0/1.50.3/gamedesign\n"
+            "  hoh-protos definitions --version 1.53.5\n"
+            "  hoh-protos definitions --descriptors output/un0/1.53.5/descriptors.pb "
+            "--out-dir output/un0/1.53.5 "
+            "--input fixtures/un0/1.53.5/gamedesign\n"
+            "  # startup is optional (player-session PII); add "
+            "--input fixtures/un0/1.53.5/startup only if present\n"
         ),
     )
     _add_world_version_args(p)
@@ -526,7 +527,8 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
         metavar="BLOB",
         help=(
             "Captured blob to decode (repeatable; default with --version: "
-            "existing startup/gamedesign/loca-compressed under fixtures/)"
+            "existing gamedesign/loca-compressed under fixtures/, plus startup "
+            "when present)"
         ),
     )
     p.add_argument(
@@ -553,11 +555,11 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos loca --version 1.50.3\n"
-            "  hoh-protos loca --descriptors output/un0/1.50.3/descriptors.pb "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--input fixtures/un0/1.50.3/loca-compressed "
-            "--out-dir output/un0/1.50.3/loca\n"
+            "  hoh-protos loca --version 1.53.5\n"
+            "  hoh-protos loca --descriptors output/un0/1.53.5/descriptors.pb "
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--input fixtures/un0/1.53.5/loca-compressed "
+            "--out-dir output/un0/1.53.5/loca\n"
         ),
     )
     _add_world_version_args(p)
@@ -609,8 +611,8 @@ def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos download-xapk --version 1.50.3\n"
-            "  hoh-protos download-xapk --version 1.50.3 --world zz0\n"
+            "  hoh-protos download-xapk --version 1.53.5\n"
+            "  hoh-protos download-xapk --version 1.53.5 --world zz0\n"
             "  hoh-protos download-xapk -o ./custom/game.xapk\n"
         ),
     )
@@ -664,9 +666,9 @@ def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
             "The CDN only keeps bundle hashes for recent builds, so a stale catalog "
             "produces mostly 404s. Use --dry-run to inspect URLs first.\n\n"
             "Examples:\n"
-            "  hoh-protos download-assets --version 1.50.3\n"
-            "  hoh-protos download-assets --xapk fixtures/un0/1.50.3/game.xapk "
-            "-o output/un0/1.50.3/assets\n"
+            "  hoh-protos download-assets --version 1.53.5\n"
+            "  hoh-protos download-assets --xapk fixtures/un0/1.53.5/game.xapk "
+            "-o output/un0/1.53.5/assets\n"
             "  hoh-protos download-assets --catalog catalog.bin -o ./assets "
             "--only hero --jobs 16\n"
         ),
@@ -778,10 +780,10 @@ def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
             "so --xapk needs no network and covers far more than a CDN pull.\n"
             "Requires the assets extra: pip install 'hoh-protos[assets]'\n\n"
             "Examples:\n"
-            "  hoh-protos unpack-assets --version 1.50.3 --only spriteatlas\n"
-            "  hoh-protos unpack-assets --version 1.50.3 --xapk\n"
-            "  hoh-protos unpack-assets --xapk fixtures/un0/1.50.3/game.xapk "
-            "-o output/un0/1.50.3/unpacked\n"
+            "  hoh-protos unpack-assets --version 1.53.5 --only spriteatlas\n"
+            "  hoh-protos unpack-assets --version 1.53.5 --xapk\n"
+            "  hoh-protos unpack-assets --xapk fixtures/un0/1.53.5/game.xapk "
+            "-o output/un0/1.53.5/unpacked\n"
         ),
     )
     _add_world_version_args(p)
@@ -875,11 +877,11 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
             "Each value resolves to one of: image (a PNG), bundle_only (an "
             "address whose bundle holds a prefab, not art), or miss.\n\n"
             "Examples:\n"
-            "  hoh-protos link-assets --version 1.50.3\n"
-            "  hoh-protos link-assets --index output/un0/1.50.3/unpacked/index.json \\\n"
-            "    --descriptors output/un0/1.50.3/descriptors.pb \\\n"
-            "    --definitions output/un0/1.50.3/gamedesign "
-            "-o output/un0/1.50.3/asset_links\n"
+            "  hoh-protos link-assets --version 1.53.5\n"
+            "  hoh-protos link-assets --index output/un0/1.53.5/unpacked/index.json \\\n"
+            "    --descriptors output/un0/1.53.5/descriptors.pb \\\n"
+            "    --definitions output/un0/1.53.5/gamedesign "
+            "-o output/un0/1.53.5/asset_links\n"
         ),
     )
     _add_world_version_args(p)
@@ -925,11 +927,13 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
 def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "download-fixtures",
-        help="Download startup/gamedesign/loca fixtures from InnoGames",
+        help="Download gamedesign/loca (and optional startup) fixtures from InnoGames",
         description=(
             "Log into Heroes of History, open a browser play session, and save "
-            "raw protobuf responses (startup, gamedesign, loca-compressed) plus "
-            "the matching XAPK as game.xapk under fixtures/{world}/{clientVersion}/. "
+            "raw protobuf responses under fixtures/{world}/{clientVersion}/. "
+            "Default downloads are startup, gamedesign, and loca-compressed, plus "
+            "the matching XAPK as game.xapk. Prefer --only gamedesign,loca for "
+            "contributor fixtures (startup is optional player-session PII). "
             "Talks only to InnoGames / APKPure hosts; nothing is uploaded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -938,7 +942,8 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
             "(env overwrites flags). Optional HOH_WORLD / HOH_LOCALE likewise "
             "overwrite --world / --locale.\n\n"
             "Examples:\n"
-            "  hoh-protos download-fixtures --username USER --password PASS\n"
+            "  hoh-protos download-fixtures --username USER --password PASS "
+            "--only gamedesign,loca\n"
             "  hoh-protos download-fixtures --world zz0 --only gamedesign,loca\n"
             "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
         ),
@@ -979,7 +984,8 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         metavar="LIST",
         help=(
             "Comma-separated fixtures to download: startup, gamedesign, loca "
-            "(default: all three)"
+            "(default: all three; prefer gamedesign,loca without startup for "
+            "tracked contributor fixtures)"
         ),
     )
     p.add_argument(
@@ -1014,9 +1020,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hoh-protos setup\n"
             "  hoh-protos check-deps\n"
-            "  hoh-protos download-xapk --version 1.50.3\n"
-            "  hoh-protos run --version 1.50.3\n"
-            "  hoh-protos download-assets --version 1.50.3\n"
+            "  hoh-protos download-xapk --version 1.53.5\n"
+            "  hoh-protos run --version 1.53.5\n"
+            "  hoh-protos download-assets --version 1.53.5\n"
         ),
     )
     sub = parser.add_subparsers(dest="command")
