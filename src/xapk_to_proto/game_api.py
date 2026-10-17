@@ -432,6 +432,8 @@ def download_fixtures(
     force: bool = False,
     verbose: bool = False,
     download_xapk: bool | None = None,
+    wasm_url: str | None = None,
+    data_url: str | None = None,
     environ: dict[str, str] | None = None,
     client: GameApiClient | None = None,
 ) -> DownloadFixturesResult:
@@ -475,23 +477,41 @@ def download_fixtures(
         print(f"  out: {out_dir}", flush=True)
 
     results: list[FixtureFileResult] = []
-    discovery_text: str | None = None
+    discovery: wasm.DiscoverySources | None = None
+    discovery_headers = {
+        "X-AUTH-TOKEN": session.session_id,
+        "X-ClientVersion": session.client_version,
+        "User-Agent": USER_AGENT,
+    }
 
-    def _discovery() -> str:
-        nonlocal discovery_text
-        if discovery_text is None:
-            discovery_text = wasm.collect_discovery_text(
-                api, session, verbose=verbose
+    def _discovery() -> wasm.DiscoverySources:
+        nonlocal discovery
+        if discovery is None:
+            discovery = wasm.collect_discovery_sources(
+                api,
+                session,
+                verbose=verbose,
+                headers=discovery_headers,
+                environ=environ,
             )
-        return discovery_text
+        return discovery
 
     for name in fixtures:
         if name == FIXTURE_WASM:
-            text = _discovery()
-            urls = wasm.discover_build_urls(
-                text,
+            override = wasm.resolve_build_url_overrides(
+                wasm_url=wasm_url,
+                data_url=data_url,
                 cdn_root=wasm.resolve_cdn_root(environ=environ),
             )
+            if override is not None:
+                urls = override
+            else:
+                sources = _discovery()
+                urls = wasm.discover_build_urls(
+                    sources.text,
+                    cdn_root=sources.cdn_root,
+                    fetches=sources.fetches,
+                )
             dl = wasm.download_webgl_build(
                 out_dir=out_dir,
                 wasm_url=urls.wasm_url,
@@ -515,8 +535,14 @@ def download_fixtures(
             continue
 
         if name == FIXTURE_CATALOG:
-            text = _discovery()
-            catalog_url = wasm.discover_catalog_url(text)
+            # Catalog does not need Build URL discovery; StreamingAssets first.
+            sources_text = discovery.text if discovery is not None else None
+            catalog_url = wasm.resolve_webgl_catalog_url(
+                api,
+                session,
+                discovery_text=sources_text,
+                verbose=verbose,
+            )
             dl = wasm.download_webgl_catalog(
                 out_dir=out_dir,
                 catalog_url=catalog_url,

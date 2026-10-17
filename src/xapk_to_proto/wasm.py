@@ -1,8 +1,8 @@
 """WebGL build helpers: UnityWebData extract, CDN URL discovery, downloads.
 
-Fetches ``Build/*.wasm`` + ``Build/*.data`` and Addressables ``catalog_*.bin``
-from the InnoGames CDN (override with ``HOH_CDN_URL``). Bundle downloads still
-use :data:`xapk_to_proto.assets.CDN_ROOT`.
+Fetches ``Build/*.wasm`` + ``Build/*.data`` and Addressables ``catalog.bin``
+from the InnoGames CDN / world host (override with ``HOH_CDN_URL``). Bundle
+downloads still use :data:`xapk_to_proto.assets.CDN_ROOT`.
 """
 
 from __future__ import annotations
@@ -37,6 +37,31 @@ _BUILD_DATA_RE = re.compile(
     r"""(?P<url>(?:https?://[^\s"'<>]+|/)?Build/[a-fA-F0-9]+\.data)""",
     re.IGNORECASE,
 )
+# Post-process injects bare filenames (no Build/ prefix) into the login shell.
+_CODE_FILENAME_RE = re.compile(
+    r"""(?:const\s+)?codeFileName\s*=\s*["'](?P<name>[a-fA-F0-9]+\.wasm)["']""",
+    re.IGNORECASE,
+)
+_DATA_FILENAME_RE = re.compile(
+    r"""(?:const\s+)?dataFileName\s*=\s*["'](?P<name>[a-fA-F0-9]+\.data)["']""",
+    re.IGNORECASE,
+)
+_CODE_URL_FIELD_RE = re.compile(
+    r"""codeUrl\s*[:=]\s*["'](?P<url>[^"']+\.wasm)["']""",
+    re.IGNORECASE,
+)
+_DATA_URL_FIELD_RE = re.compile(
+    r"""dataUrl\s*[:=]\s*["'](?P<url>[^"']+\.data)["']""",
+    re.IGNORECASE,
+)
+_CDN_URL_RE = re.compile(
+    r"""cdn_url\s*:\s*['"](?P<url>https?://[^'"]+)['"]""",
+    re.IGNORECASE,
+)
+_CATALOG_FILENAME_RE = re.compile(
+    r"""(?:const\s+)?catalogFileName\s*=\s*["'](?P<name>catalog_\d{4}(?:\.\d{2}){5}\.bin)["']""",
+    re.IGNORECASE,
+)
 _CATALOG_BIN_RE = re.compile(
     r"""(?P<name>catalog_\d{4}(?:\.\d{2}){5}\.bin)""",
     re.IGNORECASE,
@@ -55,6 +80,15 @@ _SCRIPT_SRC_RE = re.compile(
 class BuildUrls:
     wasm_url: str
     data_url: str
+
+
+@dataclass(frozen=True)
+class DiscoverySources:
+    """Scraped shell/config text plus fetch diagnostics for error messages."""
+
+    text: str
+    cdn_root: str
+    fetches: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +112,26 @@ def resolve_cdn_root(*, environ: dict[str, str] | None = None) -> str:
     if not raw.endswith("/"):
         raw += "/"
     return raw
+
+
+def parse_cdn_url_from_text(text: str) -> str | None:
+    """Extract ``cdn_url`` from ``config/unity.js`` / ``unity_config`` text."""
+    match = _CDN_URL_RE.search(text or "")
+    if match is None:
+        return None
+    raw = match.group("url").strip()
+    if not raw.endswith("/"):
+        raw += "/"
+    return raw
+
+
+def streaming_assets_catalog_url(account_host: str) -> str:
+    """Public Addressables catalog on the world master host."""
+    host = account_host.strip().rstrip("/")
+    if host.startswith("http://") or host.startswith("https://"):
+        parsed = urlparse(host)
+        host = parsed.netloc or host
+    return f"https://{host}.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -121,6 +175,53 @@ def _absolute_url(url: str, *, cdn_root: str, base: str | None = None) -> str:
             return f"{parsed.scheme}://{parsed.netloc}{url}"
         return urljoin(cdn_root, url.lstrip("/"))
     return urljoin(cdn_root, url)
+
+
+def _normalize_build_ref(ref: str) -> str:
+    """Accept full URL, ``Build/{hash}.ext``, bare ``{hash}.ext``, or bare hash."""
+    raw = (ref or "").strip()
+    if not raw:
+        raise ValueError("empty build URL / hash")
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if raw.startswith("/"):
+        return raw
+    if raw.startswith("Build/"):
+        return raw
+    # Bare filename or hash (+ optional extension).
+    lower = raw.lower()
+    if lower.endswith(".wasm") or lower.endswith(".data"):
+        return f"Build/{raw}"
+    if re.fullmatch(r"[a-fA-F0-9]+", raw):
+        return f"Build/{raw}"
+    return raw
+
+
+def resolve_build_url_overrides(
+    *,
+    wasm_url: str | None = None,
+    data_url: str | None = None,
+    cdn_root: str | None = None,
+) -> BuildUrls | None:
+    """Resolve CLI/env overrides into absolute CDN URLs.
+
+    Returns ``None`` when both overrides are unset. Requires both when either
+    is set. Accepts full URLs, ``Build/{hash}.ext``, or bare hashes/filenames.
+    """
+    wasm_raw = (wasm_url or "").strip() or None
+    data_raw = (data_url or "").strip() or None
+    if wasm_raw is None and data_raw is None:
+        return None
+    if wasm_raw is None or data_raw is None:
+        raise ValueError(
+            "both --wasm-url and --data-url are required when overriding "
+            "WebGL Build discovery"
+        )
+    root = cdn_root or resolve_cdn_root()
+    return BuildUrls(
+        wasm_url=_absolute_url(_normalize_build_ref(wasm_raw), cdn_root=root),
+        data_url=_absolute_url(_normalize_build_ref(data_raw), cdn_root=root),
+    )
 
 
 def parse_unity_web_data(data: bytes) -> list[tuple[str, int, int]]:
@@ -209,27 +310,65 @@ def discover_wasm_il2cpp(fixtures_dir: Path) -> tuple[Path, Path]:
     return wasm, metadata
 
 
+def _pick_wasm_ref(text: str) -> str | None:
+    for pattern in (_BUILD_WASM_RE, _CODE_URL_FIELD_RE):
+        match = pattern.search(text)
+        if match is not None:
+            return match.group("url")
+    match = _CODE_FILENAME_RE.search(text)
+    if match is not None:
+        return match.group("name")
+    return None
+
+
+def _pick_data_ref(text: str) -> str | None:
+    for pattern in (_BUILD_DATA_RE, _DATA_URL_FIELD_RE):
+        match = pattern.search(text)
+        if match is not None:
+            return match.group("url")
+    match = _DATA_FILENAME_RE.search(text)
+    if match is not None:
+        return match.group("name")
+    return None
+
+
+def _format_fetch_diagnostics(fetches: tuple[tuple[str, int], ...] | None) -> str:
+    if not fetches:
+        return "  (no discovery fetches recorded)"
+    lines = [f"  {url} ({size} bytes)" for url, size in fetches]
+    return "\n".join(lines)
+
+
 def discover_build_urls(
     text: str,
     *,
     cdn_root: str | None = None,
     base_url: str | None = None,
+    fetches: tuple[tuple[str, int], ...] | None = None,
 ) -> BuildUrls:
-    """Scrape shell HTML/JS for ``Build/*.wasm`` and ``Build/*.data`` URLs."""
-    root = cdn_root or resolve_cdn_root()
-    wasm_match = _BUILD_WASM_RE.search(text)
-    data_match = _BUILD_DATA_RE.search(text)
-    if wasm_match is None or data_match is None:
+    """Scrape shell HTML/JS for ``Build/*.wasm`` and ``Build/*.data`` URLs.
+
+    Accepts literal ``Build/{hash}.ext`` paths, ``codeUrl``/``dataUrl`` fields,
+    and post-process ``codeFileName``/``dataFileName`` constants (resolved
+    against ``cdn_root`` + ``Build/``).
+    """
+    root = cdn_root or parse_cdn_url_from_text(text) or resolve_cdn_root()
+    wasm_ref = _pick_wasm_ref(text)
+    data_ref = _pick_data_ref(text)
+    if wasm_ref is None or data_ref is None:
+        diag = _format_fetch_diagnostics(fetches)
         raise ValueError(
             "Build/*.wasm and/or Build/*.data URL not found in shell sources "
-            "(login page / loader JS). The WebGL build config may have changed."
+            "(login redirect HTML / loader JS / config). "
+            "Pass --wasm-url and --data-url to override discovery.\n"
+            f"Scraped sources:\n{diag}"
         )
     return BuildUrls(
         wasm_url=_absolute_url(
-            wasm_match.group("url"), cdn_root=root, base=base_url
+            _normalize_build_ref(wasm_ref), cdn_root=root, base=base_url
         ),
         data_url=_absolute_url(
-            data_match.group("url"), cdn_root=root, base=base_url
+            _normalize_build_ref(data_ref), cdn_root=root, base=base_url
         ),
     )
 
@@ -243,6 +382,11 @@ def discover_catalog_url(
     root = bundles_root or BUNDLES_CDN_ROOT
     if not root.endswith("/"):
         root += "/"
+
+    # Prefer post-process catalogFileName from the login shell.
+    named = _CATALOG_FILENAME_RE.search(text)
+    if named is not None:
+        return urljoin(root, named.group("name"))
 
     # Prefer an explicit .bin URL / name.
     match = _CATALOG_BIN_RE.search(text)
@@ -272,11 +416,182 @@ def discover_catalog_url(
     )
 
 
+def _url_exists(url: str) -> bool:
+    """Cheap existence probe (Range GET); returns False on HTTP/network errors."""
+    req = Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept-Encoding": "identity",
+            "Range": "bytes=0-0",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            return 200 <= getattr(resp, "status", 200) < 400
+    except (HTTPError, URLError, TimeoutError, OSError):
+        return False
+
+
+def resolve_webgl_catalog_url(
+    client: object,
+    session: object,
+    *,
+    discovery_text: str | None = None,
+    verbose: bool = False,
+) -> str:
+    """Prefer StreamingAssets catalog; fall back to CDN scrape from shell text."""
+    world = session.world
+    primary = streaming_assets_catalog_url(world.account_host)
+    if verbose:
+        print(f"  catalog: probe {primary}", flush=True)
+    if _url_exists(primary):
+        return primary
+    if verbose:
+        print(
+            "  catalog: StreamingAssets unavailable, falling back to CDN scrape",
+            flush=True,
+        )
+
+    text = discovery_text
+    if text is None:
+        text = collect_discovery_text(client, session, verbose=verbose)
+    return discover_catalog_url(text)
+
+
+def _account_origin(account_host: str) -> str:
+    return f"https://{account_host}.heroesofhistorygame.com"
+
+
+def _script_base_url(page_url: str, account_host: str) -> str:
+    """Resolve relative script srcs against the world origin.
+
+    Login redirect lives under ``/browser-session/…``; Scripts/ assets are
+    served from the account host root, not that path prefix.
+    """
+    origin = _account_origin(account_host)
+    if "/browser-session" in (page_url or ""):
+        return origin + "/"
+    if page_url:
+        return page_url
+    return origin + "/"
+
+
+def collect_discovery_sources(
+    client: object,
+    session: object,
+    *,
+    verbose: bool = False,
+    headers: dict[str, str] | None = None,
+    environ: dict[str, str] | None = None,
+) -> DiscoverySources:
+    """Fetch authenticated game shell HTML (+ linked scripts) for URL scraping.
+
+    Always includes ``/config/unity.js`` so ``cdn_url`` is available. Relative
+    script tags from the login redirect are resolved against the account host
+    origin (not ``/browser-session/``).
+    """
+    chunks: list[str] = []
+    fetches: list[tuple[str, int]] = []
+    req_headers = dict(headers or {})
+    if "User-Agent" not in req_headers:
+        req_headers["User-Agent"] = USER_AGENT
+
+    redirect_html = getattr(session, "redirect_html", "") or ""
+    if redirect_html:
+        chunks.append(redirect_html)
+        fetches.append(("(redirect_html)", len(redirect_html.encode("utf-8"))))
+
+    world = session.world
+    origin = _account_origin(world.account_host)
+    shell_urls = [
+        f"{origin}/",
+        f"{origin}/config/unity.js",
+    ]
+    redirect_url = getattr(session, "redirect_url", "") or ""
+    if redirect_url:
+        shell_urls.insert(0, redirect_url)
+
+    seen: set[str] = set()
+    script_queue: list[str] = []
+
+    def _fetch(url: str) -> str | None:
+        if url in seen:
+            return None
+        seen.add(url)
+        try:
+            if verbose:
+                print(f"  discover: GET {url}", flush=True)
+            _status, _headers, body = client.request(  # type: ignore[attr-defined]
+                "GET", url, headers=req_headers
+            )
+            fetches.append((url, len(body)))
+            return body.decode("utf-8", errors="replace")
+        except (RuntimeError, UnicodeDecodeError):
+            fetches.append((url, -1))
+            return None
+
+    for url in shell_urls:
+        text = _fetch(url)
+        if text is None:
+            continue
+        chunks.append(text)
+        base = _script_base_url(url, world.account_host)
+        for src in _SCRIPT_SRC_RE.findall(text)[:16]:
+            abs_src = urljoin(base, src)
+            if abs_src in seen:
+                continue
+            if not any(
+                part in abs_src
+                for part in (
+                    "/Build/",
+                    "/Scripts/",
+                    "loader",
+                    "framework",
+                    "Wasm",
+                    "Game.js",
+                    ".js",
+                )
+            ):
+                continue
+            script_queue.append(abs_src)
+
+    for abs_src in script_queue[:20]:
+        script = _fetch(abs_src)
+        if script is not None:
+            chunks.append(script)
+
+    combined = "\n".join(chunks)
+    if not combined.strip():
+        diag = _format_fetch_diagnostics(tuple(fetches))
+        raise RuntimeError(
+            "could not fetch game shell HTML for WebGL URL discovery "
+            "(authenticated GET to the world host failed).\n"
+            f"Attempted:\n{diag}"
+        )
+
+    env_cdn = resolve_cdn_root(environ=environ)
+    # Prefer explicit HOH_CDN_URL when set; else unity.js cdn_url; else default.
+    env = os.environ if environ is None else environ
+    if env.get(ENV_CDN_URL):
+        cdn_root = env_cdn
+    else:
+        cdn_root = parse_cdn_url_from_text(combined) or env_cdn
+
+    return DiscoverySources(
+        text=combined,
+        cdn_root=cdn_root,
+        fetches=tuple(fetches),
+    )
+
+
 def collect_discovery_text(
     client: object,
     session: object,
     *,
     verbose: bool = False,
+    headers: dict[str, str] | None = None,
+    environ: dict[str, str] | None = None,
 ) -> str:
     """Fetch authenticated game shell HTML (+ linked scripts) for URL scraping.
 
@@ -284,60 +599,13 @@ def collect_discovery_text(
     :class:`xapk_to_proto.game_api.GameApiClient`. ``session`` needs
     ``.world.account_host`` and optionally ``.redirect_html``.
     """
-    chunks: list[str] = []
-    redirect_html = getattr(session, "redirect_html", "") or ""
-    if redirect_html:
-        chunks.append(redirect_html)
-
-    world = session.world
-    shell_urls = [
-        f"https://{world.account_host}.heroesofhistorygame.com/",
-        f"https://{world.account_host}.heroesofhistorygame.com/play",
-    ]
-    # Prefer the login redirect host when available.
-    redirect_url = getattr(session, "redirect_url", "") or ""
-    if redirect_url:
-        shell_urls.insert(0, redirect_url)
-
-    seen: set[str] = set()
-    for url in shell_urls:
-        if url in seen:
-            continue
-        seen.add(url)
-        try:
-            if verbose:
-                print(f"  discover: GET {url}", flush=True)
-            _status, _headers, body = client.request("GET", url)  # type: ignore[attr-defined]
-            text = body.decode("utf-8", errors="replace")
-            chunks.append(text)
-            # Pull a few script tags that likely embed Unity config.
-            for src in _SCRIPT_SRC_RE.findall(text)[:12]:
-                abs_src = urljoin(url, src)
-                if abs_src in seen:
-                    continue
-                if not any(
-                    part in abs_src
-                    for part in ("/Build/", "loader", "framework", "Wasm", ".js")
-                ):
-                    continue
-                seen.add(abs_src)
-                try:
-                    if verbose:
-                        print(f"  discover: GET {abs_src}", flush=True)
-                    _s, _h, script = client.request("GET", abs_src)  # type: ignore[attr-defined]
-                    chunks.append(script.decode("utf-8", errors="replace"))
-                except (RuntimeError, UnicodeDecodeError):
-                    continue
-        except RuntimeError:
-            continue
-
-    combined = "\n".join(chunks)
-    if not combined.strip():
-        raise RuntimeError(
-            "could not fetch game shell HTML for WebGL URL discovery "
-            "(authenticated GET to the world host failed)"
-        )
-    return combined
+    return collect_discovery_sources(
+        client,
+        session,
+        verbose=verbose,
+        headers=headers,
+        environ=environ,
+    ).text
 
 
 def download_webgl_build(

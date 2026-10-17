@@ -34,8 +34,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        world: [un0]
-        version: ["1.51.4", "1.52.7", "1.53.5"]
+        world: [un0, zz0]
+        include:
+          - world: un0
+            version: "1.54.3"
+          - world: un0
+            version: "1.55.5"
+          - world: zz0
+            version: "1.56.2"
 
     steps:
       - name: Checkout

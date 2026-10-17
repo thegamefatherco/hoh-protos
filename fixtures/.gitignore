@@ -5,4 +5,12 @@
 !un0/*/
 !un0/*/gamedesign
 !un0/*/loca-compressed
+!zz0/
+!zz0/*/
+!zz0/*/gamedesign
+!zz0/*/loca-compressed
+!zz0/*/catalog.bin
+!zz0/*/game.data
+!zz0/*/game.wasm
+!zz0/*/global-metadata.dat
 # startup intentionally not allowlisted (player-session PII; optional local only)

@@ -270,6 +270,24 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--wasm-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build wasm URL or hash when auto-fetching "
+            "(requires --data-url; accepts full URL, Build/{hash}.wasm, or hash)"
+        ),
+    )
+    p.add_argument(
+        "--data-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build data URL or hash when auto-fetching "
+            "(requires --wasm-url; accepts full URL, Build/{hash}.data, or hash)"
+        ),
+    )
+    p.add_argument(
         "--work-dir",
         type=Path,
         default=None,
@@ -394,6 +412,13 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help="Unpacked images output directory (default: {output}/unpacked)",
+    )
+    p.add_argument(
+        "--meshes",
+        action="store_true",
+        help=(
+            "With --unpack-assets, also export raw Mesh objects as Wavefront OBJ"
+        ),
     )
     p.add_argument(
         "--link-assets",
@@ -802,11 +827,12 @@ def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
 def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "unpack-assets",
-        help="Extract images from Addressables bundles and index them by name",
+        help="Extract images (and optionally meshes) from Addressables bundles",
         description=(
             "Decode Sprite and Texture2D objects out of Unity asset bundles into "
-            "PNGs, and write an index.json mapping asset names and Addressables "
-            "addresses to the extracted files."
+            "PNGs (and optionally Mesh objects into OBJ with --meshes), and write "
+            "an index.json mapping asset names and Addressables addresses to the "
+            "extracted files."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -885,6 +911,14 @@ def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--meshes",
+        action="store_true",
+        help=(
+            "Also export raw Mesh objects as Wavefront OBJ beside the PNGs "
+            "(UnityPy MeshExporter; no materials/prefab hierarchy)"
+        ),
+    )
+    p.add_argument(
         "--clean",
         action="store_true",
         help="Delete the output directory first instead of resuming",
@@ -908,8 +942,9 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Each value resolves to one of: image (a PNG), bundle_only (an "
-            "address whose bundle holds a prefab, not art), or miss.\n\n"
+            "Each value resolves to one of: image (a PNG), mesh (an OBJ from "
+            "--meshes), bundle_only (an address whose bundle holds a prefab with "
+            "no extracted art), or miss.\n\n"
             "Examples:\n"
             "  hoh-protos link-assets --version 1.53.5\n"
             "  hoh-protos link-assets --index output/un0/1.53.5/unpacked/index.json \\\n"
@@ -980,6 +1015,8 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
             "  hoh-protos download-fixtures --username USER --password PASS "
             "--only gamedesign,loca\n"
             "  hoh-protos download-fixtures --world zz0 --only wasm,catalog,loca\n"
+            "  hoh-protos download-fixtures --world zz0 --only wasm "
+            "--wasm-url HASH.wasm --data-url HASH.data\n"
             "  hoh-protos download-fixtures --world zz0 --only gamedesign,loca\n"
             "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
         ),
@@ -1042,6 +1079,24 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         "--skip-xapk",
         action="store_true",
         help="Do not download game.xapk from APKPure into the fixture folder",
+    )
+    p.add_argument(
+        "--wasm-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build wasm URL or hash for --only wasm "
+            "(requires --data-url; accepts full URL, Build/{hash}.wasm, or hash)"
+        ),
+    )
+    p.add_argument(
+        "--data-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build data URL or hash for --only wasm "
+            "(requires --wasm-url; accepts full URL, Build/{hash}.data, or hash)"
+        ),
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -1546,6 +1601,8 @@ def main(argv: list[str] | None = None) -> int:
                 force=args.force,
                 verbose=args.verbose,
                 download_xapk=False if args.skip_xapk else None,
+                wasm_url=getattr(args, "wasm_url", None),
+                data_url=getattr(args, "data_url", None),
             )
         except (RuntimeError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)
@@ -1629,6 +1686,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip=tuple(args.skip or ()),
                 jobs=args.jobs,
                 include_atlas_textures=args.include_atlas_textures,
+                extract_meshes=args.meshes,
                 clean=args.clean,
                 dry_run=args.dry_run,
                 verbose=args.verbose,
@@ -1675,8 +1733,11 @@ def _print_unpack_result(result: unpack.UnpackResult) -> None:
     extra = len(result.warnings) - 20
     if extra > 0:
         print(f"warning: ... and {extra} more", file=sys.stderr)
+    mesh_bit = (
+        f", {result.meshes_written} mesh(es)" if result.meshes_written else ""
+    )
     print(
-        f"unpacked: {result.images_written} image(s) from "
+        f"unpacked: {result.images_written} image(s){mesh_bit} from "
         f"{result.bundles_selected - result.bundles_skipped} bundle(s) "
         f"({result.bundles_skipped} already done, {result.bundles_failed} failed) "
         f"-> {result.out_dir}"
@@ -1693,7 +1754,8 @@ def _print_link_result(result: assetlink.LinkResult, out_dir: Path) -> None:
         f"{totals['types_scanned']} type(s)"
     )
     print(
-        f"  {totals['image']} image, {totals['bundle_only']} bundle-only, "
+        f"  {totals['image']} image, {totals.get('mesh', 0)} mesh, "
+        f"{totals['bundle_only']} bundle-only, "
         f"{totals['definition_ref']} gamedesign id, {totals['miss']} unresolved"
     )
     print(f"wrote {out_dir / assetlink.REPORT_FILENAME}")

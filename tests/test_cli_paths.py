@@ -82,6 +82,43 @@ def test_run_from_wasm_requires_version_or_creds(tmp_path: Path, monkeypatch):
     assert "--version" in err
 
 
+def test_wasm_url_overrides_on_download_fixtures_and_run():
+    dl = build_parser().parse_args(
+        [
+            "download-fixtures",
+            "--world",
+            "zz0",
+            "--only",
+            "wasm",
+            "--wasm-url",
+            "aabb.wasm",
+            "--data-url",
+            "ccdd.data",
+        ]
+    )
+    assert dl.wasm_url == "aabb.wasm"
+    assert dl.data_url == "ccdd.data"
+
+    run = build_parser().parse_args(
+        [
+            "run",
+            "--from-wasm",
+            "--world",
+            "zz0",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--wasm-url",
+            "https://cdn/Build/a.wasm",
+            "--data-url",
+            "https://cdn/Build/a.data",
+        ]
+    )
+    assert run.wasm_url.endswith("a.wasm")
+    assert run.data_url.endswith("a.data")
+
+
 def test_download_assets_explicit_overrides(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     catalog = tmp_path / "catalog.bin"

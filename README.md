@@ -313,7 +313,7 @@ files are left alone unless you pass `--force`.
 | --- | --- |
 | `startup` / `gamedesign` / `loca` | Protobuf API blobs (same as before) |
 | `wasm` | `game.wasm`, `game.data`, extracted `global-metadata.dat` from the CDN Build |
-| `catalog` | Addressables `catalog.bin` (timestamped CDN name normalized locally) |
+| `catalog` | Addressables `catalog.bin` from `StreamingAssets/aa/catalog.bin` (CDN scrape fallback) |
 
 Including `wasm` or `catalog` **skips** the APKPure XAPK download by default
 (WebGL replaces it for that fixture set).
@@ -343,6 +343,26 @@ catalog source is `fixtures/{world}/{version}/catalog.bin` (not the XAPK
 Addressables pack). Web metadata often has **zero** embedded FileDescriptorProtos,
 so schemas come from `dump.cs` rebuild — Il2CppDumper auto-scan can still fail
 on some Unity 6 WASM builds; the CLI surfaces that clearly.
+
+**Build URL discovery** reads `codeFileName` / `dataFileName` from the
+authenticated login redirect shell and `cdn_url` from `/config/unity.js`. If
+InnoGames moves those fields again, skip scrape with explicit URLs (full CDN
+URL, `Build/{hash}.ext`, or bare hash):
+
+```bash
+uv run hoh-protos download-fixtures --world zz0 --only wasm \
+  --username USER --password PASS \
+  --wasm-url 7f5a3d28b1ea13dc25e84b0e8ac6ec17.wasm \
+  --data-url 931ed4b22ae84bf9e09578e647a8eb06.data
+
+# Same overrides work on run --from-wasm when auto-fetching
+uv run hoh-protos run --from-wasm --world zz0 --username USER --password PASS \
+  --wasm-url … --data-url …
+```
+
+`--only catalog` does **not** need Build discovery: it downloads
+`https://{account_host}.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin`
+first, then falls back to a CDN `catalog_*.bin` scrape if that fails.
 
 Fixture layout for a WebGL run:
 
@@ -434,24 +454,29 @@ Output:
 ```text
 unpacked/
 ├── extracted/<address>/<asset name>.png
+├── extracted/<address>/<mesh name>.obj   # only with --meshes
 └── index.json
 ```
 
-Only `Sprite` and `Texture2D` objects are exported. Atlas sheet textures
-(`sactx-*`) and textures shadowed by a sprite of the same name are skipped as
-redundant — pass `--include-atlas-textures` to keep them. Re-running resumes
+Only `Sprite` and `Texture2D` objects are exported by default. Atlas sheet
+textures (`sactx-*`) and textures shadowed by a sprite of the same name are
+skipped as redundant — pass `--include-atlas-textures` to keep them. Pass
+`--meshes` to also export raw Unity `Mesh` objects as Wavefront OBJ (no
+materials or prefab hierarchy — UnityPy only supports OBJ). Re-running resumes
 from `index.json` rather than redoing finished bundles; `--clean` starts over.
+The first `--meshes` pass after an image-only unpack re-scans bundles that were
+previously recorded as empty (they were never mesh-scanned).
 
-`index.json` carries two lookup tables, because game data references art in two
-different ways:
+`index.json` carries lookup tables for both images and meshes:
 
 - `by_name` — sprite/texture name to PNG path. A sprite's `m_Name` *is* the
   address the game data uses (`icon_gold_ore_3`), and for icons packed into a
   shared SpriteAtlas this is the only way to find them: they appear nowhere in
   `catalog.bin`.
-- `by_bundle_prefix` — Addressables address to its bundle. Addresses like
-  `Unit_QueenBoudicca` name a bundle holding a *prefab*, which legitimately has
-  no image.
+- `by_mesh_name` — mesh `m_Name` to OBJ path (populated only with `--meshes`).
+- `by_bundle_prefix` — Addressables address to its bundle, plus `images` and
+  `meshes` path lists. Addresses like `Unit_QueenBoudicca` name a bundle holding
+  a *prefab*, which may have no image even when meshes were extracted.
 
 ### Linking assets to game data
 
@@ -473,12 +498,13 @@ automatically — no separate `--definitions-input` required.
 
 This writes `links.json` (per type, per record, per field) and `report.json`
 (hit rates per field plus the most common unresolved values). Every value lands
-in one of four buckets:
+in one of five buckets:
 
 | Status | Meaning |
 | --- | --- |
 | `image` | Resolved to an extracted PNG |
-| `bundle_only` | Address names a bundle holding a prefab/mesh, so there is no image |
+| `mesh` | Address names a bundle whose geometry was exported with `--meshes` (OBJ) |
+| `bundle_only` | Address names a bundle holding a prefab/mesh with no extracted PNG or OBJ |
 | `definition_ref` | Namespaced gamedesign id (`resource.agate`), a different namespace — not a lookup failure |
 | `miss` | Genuinely unresolved |
 

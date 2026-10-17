@@ -1,4 +1,4 @@
-"""Extract images from Unity Addressables bundles and index them by asset name.
+"""Extract images (and optionally meshes) from Unity Addressables bundles.
 
 The XAPK ships the complete Addressables bundle set under ``assets/aa/<platform>/``
 (5,700+ bundles in a 1.48 build), so unpacking works fully offline and does not
@@ -14,6 +14,10 @@ Two facts about the bundle layout drive the design:
   ``m_RD.texture`` — UnityPy goes through the atlas render-data map instead. Atlas
   pages are therefore recognised by Unity's ``sactx-`` naming convention rather
   than by reference counting.
+
+Pass ``extract_meshes=True`` (CLI ``--meshes``) to also export raw ``Mesh``
+objects as Wavefront OBJ beside the PNGs. Prefab hierarchy / materials are out
+of scope; UnityPy only offers OBJ export.
 """
 
 from __future__ import annotations
@@ -32,10 +36,17 @@ try:
 except ImportError:  # optional extra: pip install hoh-protos[assets]
     UnityPy = None
 
+try:
+    from UnityPy.export.MeshExporter import export_mesh as _export_mesh
+except ImportError:  # UnityPy missing or too old
+    _export_mesh = None
+
 BUNDLE_SUFFIX = ".bundle"
 EXTRACTED_DIRNAME = "extracted"
 INDEX_FILENAME = "index.json"
 IMAGE_TYPES = ("Sprite", "Texture2D")
+MESH_TYPE = "Mesh"
+INDEX_SCHEMA_VERSION = 2
 
 # Unity names SpriteAtlas pages "sactx-<page>-<w>x<h>-<format>-<atlas>-<hash>".
 ATLAS_PAGE_PREFIX = "sactx-"
@@ -66,11 +77,22 @@ class ImageRecord:
 
 
 @dataclass
+class MeshRecord:
+    bundle: str
+    address_prefix: str | None
+    object_type: str
+    name: str
+    path: str
+    vertex_count: int
+
+
+@dataclass
 class BundleOutcome:
     """Per-bundle worker result. Kept picklable for the process pool."""
 
     bundle: str
     records: list[ImageRecord] = field(default_factory=list)
+    mesh_records: list[MeshRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unity_version: str = ""
     failed: bool = False
@@ -86,11 +108,26 @@ class UnpackResult:
     bundles_skipped: int
     bundles_failed: int
     images_written: int
+    meshes_written: int = 0
     records: list[ImageRecord] = field(default_factory=list)
-    # Bundles that hold no images at all — actors, prefabs, scenes. Recorded so
-    # an address still resolves to its bundle even when there is nothing to show.
+    mesh_records: list[MeshRecord] = field(default_factory=list)
+    # Bundles with neither images nor meshes — actors, prefabs, scenes. Recorded
+    # so an address still resolves to its bundle even when there is nothing to
+    # show.
     empty_bundles: list[str] = field(default_factory=list)
+    # Bundles scanned with extract_meshes that yielded zero Mesh objects.
+    mesh_empty_bundles: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _PreviousBundle:
+    """Resume state for one bundle, split by artifact kind."""
+
+    images: list[ImageRecord] = field(default_factory=list)
+    meshes: list[MeshRecord] = field(default_factory=list)
+    image_scanned: bool = False
+    mesh_scanned: bool = False
 
 
 def require_unitypy() -> None:
@@ -180,8 +217,9 @@ def unpack_bundle(
     out_root: Path,
     *,
     include_atlas_textures: bool = False,
+    extract_meshes: bool = False,
 ) -> BundleOutcome:
-    """Decode every selected image in one bundle into ``out_root/<address>/``."""
+    """Decode selected images (and optionally meshes) into ``out_root/<address>/``."""
     require_unitypy()
     outcome = BundleOutcome(bundle=bundle_name)
     try:
@@ -191,67 +229,121 @@ def unpack_bundle(
         outcome.warnings.append(f"{bundle_name}: load failed: {type(e).__name__}: {e}")
         return outcome
 
-    objects = []
-    candidates: list[tuple[str, str]] = []
+    image_objects = []
+    image_candidates: list[tuple[str, str]] = []
+    mesh_objects = []
+    mesh_names: list[str] = []
     for obj in env.objects:
-        if obj.type.name not in IMAGE_TYPES:
+        type_name = obj.type.name
+        if type_name not in IMAGE_TYPES and not (
+            extract_meshes and type_name == MESH_TYPE
+        ):
             continue
         outcome.unity_version = obj.assets_file.unity_version
         try:
             name = obj.peek_name() or ""
         except Exception:  # noqa: BLE001 - an unnamed object is still exportable
             name = ""
-        objects.append(obj)
-        candidates.append((obj.type.name, name))
+        if type_name in IMAGE_TYPES:
+            image_objects.append(obj)
+            image_candidates.append((type_name, name))
+        else:
+            mesh_objects.append(obj)
+            mesh_names.append(name)
 
     keep = select_image_objects(
-        candidates, include_atlas_textures=include_atlas_textures
+        image_candidates, include_atlas_textures=include_atlas_textures
     )
-    if not keep:
-        return outcome
 
     address = bundle_address_prefix(bundle_name)
     sub = address or bundle_name[: -len(BUNDLE_SUFFIX)]
     dest_dir = out_root / EXTRACTED_DIRNAME / safe_filename(sub)
-    filenames = assign_filenames([candidates[i][1] for i in keep])
 
-    for i, filename in zip(keep, filenames):
-        obj = objects[i]
-        type_name = candidates[i][0]
-        try:
-            parsed = obj.parse_as_object()
-            if type_name == "Texture2D" and is_empty_texture(parsed):
+    if keep:
+        filenames = assign_filenames([image_candidates[i][1] for i in keep])
+        for i, filename in zip(keep, filenames):
+            obj = image_objects[i]
+            type_name = image_candidates[i][0]
+            try:
+                parsed = obj.parse_as_object()
+                if type_name == "Texture2D" and is_empty_texture(parsed):
+                    outcome.warnings.append(
+                        f"{bundle_name}: {type_name} {image_candidates[i][1]!r}: "
+                        "empty texture"
+                    )
+                    continue
+                image = parsed.image
+            except Exception as e:  # noqa: BLE001 - one bad texture must not stop the run
                 outcome.warnings.append(
-                    f"{bundle_name}: {type_name} {candidates[i][1]!r}: empty texture"
+                    f"{bundle_name}: {type_name} {image_candidates[i][1]!r}: "
+                    f"decode failed: {type(e).__name__}: {e}"
                 )
                 continue
-            image = parsed.image
-        except Exception as e:  # noqa: BLE001 - one bad texture must not stop the run
+            dest = dest_dir / f"{filename}.png"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                image.save(dest)
+            except Exception as e:  # noqa: BLE001 - Pillow raises per-format errors
+                outcome.warnings.append(
+                    f"{bundle_name}: {image_candidates[i][1]!r}: write failed: {e}"
+                )
+                continue
+            outcome.records.append(
+                ImageRecord(
+                    bundle=bundle_name,
+                    address_prefix=address,
+                    object_type=type_name,
+                    name=image_candidates[i][1],
+                    path=dest.relative_to(out_root).as_posix(),
+                    width=image.width,
+                    height=image.height,
+                )
+            )
+
+    if extract_meshes and mesh_objects:
+        if _export_mesh is None:
             outcome.warnings.append(
-                f"{bundle_name}: {type_name} {candidates[i][1]!r}: "
-                f"decode failed: {type(e).__name__}: {e}"
+                f"{bundle_name}: MeshExporter unavailable; skipping meshes"
             )
-            continue
-        dest = dest_dir / f"{filename}.png"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            image.save(dest)
-        except Exception as e:  # noqa: BLE001 - Pillow raises per-format errors
-            outcome.warnings.append(
-                f"{bundle_name}: {candidates[i][1]!r}: write failed: {e}"
+            return outcome
+        mesh_filenames = assign_filenames(mesh_names)
+        for obj, name, filename in zip(mesh_objects, mesh_names, mesh_filenames):
+            try:
+                parsed = obj.parse_as_object()
+                obj_text = _export_mesh(parsed, format="obj")
+            except Exception as e:  # noqa: BLE001 - one bad mesh must not stop the run
+                outcome.warnings.append(
+                    f"{bundle_name}: Mesh {name!r}: "
+                    f"export failed: {type(e).__name__}: {e}"
+                )
+                continue
+            if not obj_text:
+                outcome.warnings.append(
+                    f"{bundle_name}: Mesh {name!r}: empty mesh"
+                )
+                continue
+            dest = dest_dir / f"{filename}.obj"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dest.write_text(obj_text, encoding="utf-8")
+            except Exception as e:  # noqa: BLE001 - filesystem errors
+                outcome.warnings.append(
+                    f"{bundle_name}: Mesh {name!r}: write failed: {e}"
+                )
+                continue
+            vertex_count = sum(
+                1 for line in obj_text.splitlines() if line.startswith("v ")
             )
-            continue
-        outcome.records.append(
-            ImageRecord(
-                bundle=bundle_name,
-                address_prefix=address,
-                object_type=type_name,
-                name=candidates[i][1],
-                path=dest.relative_to(out_root).as_posix(),
-                width=image.width,
-                height=image.height,
+            outcome.mesh_records.append(
+                MeshRecord(
+                    bundle=bundle_name,
+                    address_prefix=address,
+                    object_type=MESH_TYPE,
+                    name=name,
+                    path=dest.relative_to(out_root).as_posix(),
+                    vertex_count=vertex_count,
+                )
             )
-        )
     return outcome
 
 
@@ -374,13 +466,17 @@ def select_bundles(
 _WORKER_SOURCE: BundleSource | None = None
 _WORKER_OUT: Path | None = None
 _WORKER_ATLAS = False
+_WORKER_MESHES = False
 
 
-def _init_worker(source: BundleSource, out_root: Path, atlas: bool) -> None:
-    global _WORKER_SOURCE, _WORKER_OUT, _WORKER_ATLAS
+def _init_worker(
+    source: BundleSource, out_root: Path, atlas: bool, meshes: bool = False
+) -> None:
+    global _WORKER_SOURCE, _WORKER_OUT, _WORKER_ATLAS, _WORKER_MESHES
     _WORKER_SOURCE = source
     _WORKER_OUT = out_root
     _WORKER_ATLAS = atlas
+    _WORKER_MESHES = meshes
 
 
 def _unpack_worker(name: str) -> BundleOutcome:
@@ -391,10 +487,25 @@ def _unpack_worker(name: str) -> BundleOutcome:
         return BundleOutcome(
             bundle=name, failed=True, warnings=[f"{name}: read failed: {e}"]
         )
-    return unpack_bundle(data, name, _WORKER_OUT, include_atlas_textures=_WORKER_ATLAS)
+    return unpack_bundle(
+        data,
+        name,
+        _WORKER_OUT,
+        include_atlas_textures=_WORKER_ATLAS,
+        extract_meshes=_WORKER_MESHES,
+    )
 
 
-def _load_previous_records(out_dir: Path) -> dict[str, list[ImageRecord]]:
+def _index_has_mesh_capability(data: dict) -> bool:
+    if data.get("schema_version", 1) >= 2:
+        return True
+    capabilities = data.get("capabilities") or []
+    if "meshes" in capabilities:
+        return True
+    return "mesh_records" in data or "mesh_empty_bundles" in data
+
+
+def _load_previous_state(out_dir: Path) -> dict[str, _PreviousBundle]:
     """Read an existing index so an interrupted run can resume per bundle."""
     index_path = out_dir / INDEX_FILENAME
     if not index_path.is_file():
@@ -403,7 +514,8 @@ def _load_previous_records(out_dir: Path) -> dict[str, list[ImageRecord]]:
         data = json.loads(index_path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return {}
-    done: dict[str, list[ImageRecord]] = {}
+
+    done: dict[str, _PreviousBundle] = {}
     for raw in data.get("records", []):
         try:
             record = ImageRecord(**raw)
@@ -415,10 +527,60 @@ def _load_previous_records(out_dir: Path) -> dict[str, list[ImageRecord]]:
         record.path = record.path.replace("\\", "/")
         if not (out_dir / record.path).is_file():
             continue
-        done.setdefault(record.bundle, []).append(record)
+        entry = done.setdefault(record.bundle, _PreviousBundle())
+        entry.images.append(record)
+        entry.image_scanned = True
+
+    for raw in data.get("mesh_records", []):
+        try:
+            record = MeshRecord(**raw)
+        except TypeError:
+            return {}
+        record.path = record.path.replace("\\", "/")
+        if not (out_dir / record.path).is_file():
+            continue
+        entry = done.setdefault(record.bundle, _PreviousBundle())
+        entry.meshes.append(record)
+        entry.mesh_scanned = True
+
     for bundle in data.get("empty_bundles", []):
-        done.setdefault(bundle, [])
+        entry = done.setdefault(bundle, _PreviousBundle())
+        entry.image_scanned = True
+
+    for bundle in data.get("mesh_empty_bundles", []):
+        entry = done.setdefault(bundle, _PreviousBundle())
+        entry.mesh_scanned = True
+
+    # Legacy image-only indexes never scanned for meshes; leave mesh_scanned False
+    # so a later --meshes run re-queues those bundles.
+    if not _index_has_mesh_capability(data):
+        for entry in done.values():
+            entry.mesh_scanned = False
+    else:
+        # unpack_bundle always scans images when it scans meshes, so a mesh-only
+        # (or mesh-empty) bundle is also image-complete.
+        for entry in done.values():
+            if entry.mesh_scanned or entry.meshes:
+                entry.image_scanned = True
+
     return done
+
+
+def _load_previous_records(out_dir: Path) -> dict[str, list[ImageRecord]]:
+    """Compatibility shim: image records only (tests + callers expecting the old shape)."""
+    return {
+        name: entry.images
+        for name, entry in _load_previous_state(out_dir).items()
+        if entry.image_scanned
+    }
+
+
+def _bundle_is_done(entry: _PreviousBundle, *, extract_meshes: bool) -> bool:
+    if not entry.image_scanned:
+        return False
+    if extract_meshes and not entry.mesh_scanned:
+        return False
+    return True
 
 
 def unpack_all(
@@ -429,6 +591,7 @@ def unpack_all(
     skip: tuple[str, ...] = (),
     jobs: int = DEFAULT_JOBS,
     include_atlas_textures: bool = False,
+    extract_meshes: bool = False,
     clean: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
@@ -463,15 +626,22 @@ def unpack_all(
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    previous = {} if clean else _load_previous_records(out_dir)
+    previous = {} if clean else _load_previous_state(out_dir)
     empty_bundles: list[str] = []
+    mesh_empty_bundles: list[str] = []
     pending: list[str] = []
     for name in selected:
-        if name in previous:
+        entry = previous.get(name)
+        if entry is not None and _bundle_is_done(entry, extract_meshes=extract_meshes):
             result.bundles_skipped += 1
-            result.records.extend(previous[name])
-            if not previous[name]:
+            result.records.extend(entry.images)
+            result.mesh_records.extend(entry.meshes)
+            if not entry.images and not entry.meshes:
                 empty_bundles.append(name)
+            if extract_meshes and not entry.meshes:
+                mesh_empty_bundles.append(name)
+            elif not extract_meshes and entry.mesh_scanned and not entry.meshes:
+                mesh_empty_bundles.append(name)
         else:
             pending.append(name)
 
@@ -481,7 +651,12 @@ def unpack_all(
     total = len(pending)
     for done, outcome in enumerate(
         _iter_outcomes(
-            pending, source, out_dir, jobs=jobs, atlas=include_atlas_textures
+            pending,
+            source,
+            out_dir,
+            jobs=jobs,
+            atlas=include_atlas_textures,
+            meshes=extract_meshes,
         ),
         start=1,
     ):
@@ -491,19 +666,37 @@ def unpack_all(
             result.unity_version = outcome.unity_version
         result.records.extend(outcome.records)
         result.warnings.extend(outcome.warnings)
-        if not outcome.records and not outcome.failed:
-            empty_bundles.append(outcome.bundle)
+
+        meshes = list(outcome.mesh_records)
+        if not extract_meshes:
+            # Preserve mesh artifacts from a prior --meshes run when re-scanning
+            # for images only.
+            prior = previous.get(outcome.bundle)
+            if prior is not None and prior.meshes:
+                meshes = list(prior.meshes)
+                if prior.mesh_scanned and not prior.meshes:
+                    mesh_empty_bundles.append(outcome.bundle)
+        result.mesh_records.extend(meshes)
+
+        if not outcome.failed:
+            if not outcome.records and not meshes:
+                empty_bundles.append(outcome.bundle)
+            if extract_meshes and not outcome.mesh_records:
+                mesh_empty_bundles.append(outcome.bundle)
+
         if verbose:
             print(
                 f"  [{done}/{total}] {outcome.bundle} "
-                f"({len(outcome.records)} image(s))",
+                f"({len(outcome.records)} image(s), {len(meshes)} mesh(es))",
                 flush=True,
             )
         elif done % 250 == 0:
             print(f"  {done}/{total} bundles", flush=True)
 
     result.images_written = len(result.records)
+    result.meshes_written = len(result.mesh_records)
     result.empty_bundles = empty_bundles
+    result.mesh_empty_bundles = mesh_empty_bundles
     if result.bundles_failed:
         result.warnings.append(f"{result.bundles_failed} bundle(s) failed to load")
     return result
@@ -516,6 +709,7 @@ def _iter_outcomes(
     *,
     jobs: int,
     atlas: bool,
+    meshes: bool = False,
 ):
     if not pending:
         return
@@ -525,14 +719,14 @@ def _iter_outcomes(
             pool = ProcessPoolExecutor(
                 max_workers=jobs,
                 initializer=_init_worker,
-                initargs=(source, out_dir, atlas),
+                initargs=(source, out_dir, atlas, meshes),
             )
         except (OSError, NotImplementedError, ValueError) as e:
             # Sandboxes and containers can forbid the semaphores a pool needs.
             print(f"  process pool unavailable ({e}); unpacking serially", flush=True)
 
     if pool is None:
-        _init_worker(source, out_dir, atlas)
+        _init_worker(source, out_dir, atlas, meshes)
         for name in pending:
             yield _unpack_worker(name)
         return
@@ -544,26 +738,48 @@ def _iter_outcomes(
 def build_index(result: UnpackResult) -> dict:
     """Build the sidecar index: name lookup for sprites, prefix lookup for the rest."""
     by_name: dict[str, list[str]] = {}
+    by_mesh_name: dict[str, list[str]] = {}
     by_bundle_prefix: dict[str, dict] = {}
+
+    def _prefix_entry(address: str, bundle: str) -> dict:
+        return by_bundle_prefix.setdefault(
+            address.lower(),
+            {"bundle": bundle, "images": [], "meshes": []},
+        )
+
     for record in result.records:
         if record.name:
             by_name.setdefault(record.name.lower(), []).append(record.path)
         if record.address_prefix:
-            entry = by_bundle_prefix.setdefault(
-                record.address_prefix.lower(),
-                {"bundle": record.bundle, "images": []},
-            )
+            entry = _prefix_entry(record.address_prefix, record.bundle)
             entry["images"].append(record.path)
+
+    for record in result.mesh_records:
+        if record.name:
+            by_mesh_name.setdefault(record.name.lower(), []).append(record.path)
+        if record.address_prefix:
+            entry = _prefix_entry(record.address_prefix, record.bundle)
+            entry["meshes"].append(record.path)
 
     for bundle in result.empty_bundles:
         prefix = bundle_address_prefix(bundle)
         if prefix:
-            by_bundle_prefix.setdefault(
-                prefix.lower(), {"bundle": bundle, "images": []}
-            )
+            _prefix_entry(prefix, bundle)
+
+    for bundle in result.mesh_empty_bundles:
+        prefix = bundle_address_prefix(bundle)
+        if prefix:
+            _prefix_entry(prefix, bundle)
+
+    # Legacy consumers expect images-only entries; keep meshes key always present.
+    for entry in by_bundle_prefix.values():
+        entry.setdefault("images", [])
+        entry.setdefault("meshes", [])
 
     duplicates = {name: paths for name, paths in by_name.items() if len(paths) > 1}
     return {
+        "schema_version": INDEX_SCHEMA_VERSION,
+        "capabilities": ["images", "meshes"],
         "source": result.source,
         "unity_version": result.unity_version,
         "bundles_total": result.bundles_total,
@@ -571,11 +787,15 @@ def build_index(result: UnpackResult) -> dict:
         "bundles_skipped": result.bundles_skipped,
         "bundles_failed": result.bundles_failed,
         "images": result.images_written,
+        "meshes": result.meshes_written,
         "duplicate_names": len(duplicates),
         "by_name": {k: sorted(v) for k, v in sorted(by_name.items())},
+        "by_mesh_name": {k: sorted(v) for k, v in sorted(by_mesh_name.items())},
         "by_bundle_prefix": dict(sorted(by_bundle_prefix.items())),
         "records": [asdict(r) for r in result.records],
+        "mesh_records": [asdict(r) for r in result.mesh_records],
         "empty_bundles": sorted(result.empty_bundles),
+        "mesh_empty_bundles": sorted(set(result.mesh_empty_bundles)),
         "warnings": result.warnings[:200],
     }
 
@@ -598,6 +818,7 @@ def run_unpack(
     skip: tuple[str, ...] = (),
     jobs: int = DEFAULT_JOBS,
     include_atlas_textures: bool = False,
+    extract_meshes: bool = False,
     clean: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
@@ -619,6 +840,7 @@ def run_unpack(
         skip=skip,
         jobs=jobs,
         include_atlas_textures=include_atlas_textures,
+        extract_meshes=extract_meshes,
         clean=clean,
         dry_run=dry_run,
         verbose=verbose,

@@ -184,6 +184,8 @@ def _ensure_webgl_fixtures(
         force=False,
         verbose=args.verbose,
         download_xapk=False,
+        wasm_url=getattr(args, "wasm_url", None),
+        data_url=getattr(args, "data_url", None),
     )
     if result.out_dir.resolve() != fixtures_dir.resolve():
         print(
@@ -345,12 +347,18 @@ def _run_post_emit_steps(
         unpack_result = unpack.run_unpack(
             bundles=bundle_dir,
             out_dir=unpack_out,
+            extract_meshes=getattr(args, "meshes", False),
             verbose=args.verbose,
         )
         for warning in unpack_result.warnings[:20]:
             print(f"warning: {warning}", file=sys.stderr)
+        mesh_bit = (
+            f", {unpack_result.meshes_written} mesh(es)"
+            if unpack_result.meshes_written
+            else ""
+        )
         print(
-            f"  unpacked: {unpack_result.images_written} image(s) from "
+            f"  unpacked: {unpack_result.images_written} image(s){mesh_bit} from "
             f"{unpack_result.bundles_selected} bundle(s) "
             f"({unpack_result.bundles_failed} failed) -> {unpack_out}",
             flush=True,
@@ -429,6 +437,8 @@ def _run_from_wasm(args: Namespace) -> int:
             force=False,
             verbose=args.verbose,
             download_xapk=False,
+            wasm_url=getattr(args, "wasm_url", None),
+            data_url=getattr(args, "data_url", None),
         )
         version = result.session.client_version
         fixtures_dir = result.out_dir

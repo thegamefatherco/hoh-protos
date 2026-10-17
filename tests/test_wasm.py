@@ -94,6 +94,91 @@ def test_discover_build_urls_relative_to_cdn():
     assert urls.data_url == "https://heczz.innogamescdn.com/Build/cafebabe.data"
 
 
+def test_discover_build_urls_from_code_filename_constants():
+    html = """
+    const codeFileName = "7f5a3d28b1ea13dc25e84b0e8ac6ec17.wasm";
+    const dataFileName = "931ed4b22ae84bf9e09578e647a8eb06.data";
+    unity_config = { cdn_url: 'https://heczz.innogamescdn.com/' };
+    """
+    urls = wasm.discover_build_urls(html)
+    assert (
+        urls.wasm_url
+        == "https://heczz.innogamescdn.com/Build/7f5a3d28b1ea13dc25e84b0e8ac6ec17.wasm"
+    )
+    assert (
+        urls.data_url
+        == "https://heczz.innogamescdn.com/Build/931ed4b22ae84bf9e09578e647a8eb06.data"
+    )
+
+
+def test_discover_build_urls_uses_cdn_url_from_unity_config():
+    text = """
+    unity_config = { cdn_url: 'https://cdn.example.test/' };
+    const codeFileName = "aabb.wasm";
+    const dataFileName = "ccdd.data";
+    """
+    urls = wasm.discover_build_urls(text)
+    assert urls.wasm_url == "https://cdn.example.test/Build/aabb.wasm"
+    assert urls.data_url == "https://cdn.example.test/Build/ccdd.data"
+
+
+def test_discover_build_urls_error_lists_fetches():
+    with pytest.raises(ValueError, match="--wasm-url") as exc:
+        wasm.discover_build_urls(
+            "no build artifacts here",
+            fetches=(("https://zz0.example/config/unity.js", 278),),
+        )
+    assert "https://zz0.example/config/unity.js" in str(exc.value)
+    assert "278 bytes" in str(exc.value)
+
+
+def test_parse_cdn_url_from_text():
+    js = "unity_config = { cdn_url: 'https://heczz.innogamescdn.com' };"
+    assert wasm.parse_cdn_url_from_text(js) == "https://heczz.innogamescdn.com/"
+
+
+def test_streaming_assets_catalog_url():
+    assert wasm.streaming_assets_catalog_url("zz0") == (
+        "https://zz0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
+    )
+
+
+def test_resolve_build_url_overrides_short_circuit():
+    urls = wasm.resolve_build_url_overrides(
+        wasm_url="aabb.wasm",
+        data_url="ccdd.data",
+        cdn_root="https://heczz.innogamescdn.com/",
+    )
+    assert urls is not None
+    assert urls.wasm_url.endswith("/Build/aabb.wasm")
+    assert urls.data_url.endswith("/Build/ccdd.data")
+    assert wasm.resolve_build_url_overrides() is None
+    with pytest.raises(ValueError, match="both --wasm-url and --data-url"):
+        wasm.resolve_build_url_overrides(wasm_url="only.wasm")
+
+
+def test_resolve_webgl_catalog_url_prefers_streaming_assets(monkeypatch):
+    class _Sess:
+        world = type("W", (), {"account_host": "zz0"})()
+
+    monkeypatch.setattr(wasm, "_url_exists", lambda url: True)
+    url = wasm.resolve_webgl_catalog_url(object(), _Sess())
+    assert url.endswith("/StreamingAssets/aa/catalog.bin")
+
+
+def test_resolve_webgl_catalog_url_falls_back_to_scrape(monkeypatch):
+    class _Sess:
+        world = type("W", (), {"account_host": "zz0"})()
+
+    monkeypatch.setattr(wasm, "_url_exists", lambda url: False)
+    url = wasm.resolve_webgl_catalog_url(
+        object(),
+        _Sess(),
+        discovery_text="catalog_2026.10.13.13.25.20.bin",
+    )
+    assert url.endswith("catalog_2026.10.13.13.25.20.bin")
+
+
 def test_discover_catalog_url_from_name():
     text = "catalog_2026.09.14.13.40.12.bin plus noise"
     url = wasm.discover_catalog_url(
