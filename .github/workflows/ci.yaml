@@ -34,14 +34,32 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        world: [un0, zz0]
         include:
+          # Keep these versions as xapk only.
           - world: un0
             version: "1.54.3"
+            source: xapk
+          - world: un0
+            version: "1.54.3"
+            source: xapk
+          - world: un0
+            version: "1.54.3"
+            source: xapk
           - world: un0
             version: "1.55.5"
-          - world: zz0
-            version: "1.56.2"
+            source: xapk
+          - world: un0
+            version: "1.55.5"
+            source: xapk
+          - version: "1.55.5"
+            source: xapk
+          # Starting from 1.56.2, WASM should be used.
+          - version: "1.56.2"
+            source: wasm
+          - version: "1.56.2"
+            source: wasm
+          - version: "1.56.2"
+            source: wasm
 
     steps:
       - name: Checkout
@@ -62,10 +80,11 @@ jobs:
         run: uv run hoh-protos setup
 
       - name: Install apkeep (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.source == 'xapk' && runner.os == 'macOS'
         run: brew install apkeep
 
       - name: Restore XAPK cache
+        if: matrix.source == 'xapk'
         id: xapk-cache
         uses: actions/cache@v4
         with:
@@ -73,15 +92,25 @@ jobs:
           key: xapk-${{ matrix.world }}/${{ matrix.version }}-game-v1
 
       - name: Download XAPK
-        if: steps.xapk-cache.outputs.cache-hit != 'true'
+        if: matrix.source == 'xapk' && steps.xapk-cache.outputs.cache-hit != 'true'
         run: >
           uv run hoh-protos download-xapk --version ${{ matrix.version }}
           -o fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
 
-      - name: Generate protos
+      - name: Generate protos (XAPK)
+        if: matrix.source == 'xapk'
         run: >
           uv run hoh-protos run
           fixtures/${{ matrix.world }}/${{ matrix.version }}/game.xapk
+          --world ${{ matrix.world }}
+          --version ${{ matrix.version }}
+          --gamedesign-input fixtures/${{ matrix.world }}/${{ matrix.version }}/gamedesign
+          -v
+
+      - name: Generate protos (WASM)
+        if: matrix.source == 'wasm'
+        run: >
+          uv run hoh-protos run --from-wasm
           --world ${{ matrix.world }}
           --version ${{ matrix.version }}
           --gamedesign-input fixtures/${{ matrix.world }}/${{ matrix.version }}/gamedesign
