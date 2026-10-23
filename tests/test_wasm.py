@@ -138,9 +138,12 @@ def test_parse_cdn_url_from_text():
 
 
 def test_streaming_assets_catalog_url():
-    assert wasm.streaming_assets_catalog_url("zz0") == (
-        "https://zz0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
+    assert wasm.streaming_assets_catalog_url("zz0", "heroesgame.com") == (
+        "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
     )
+    assert wasm.streaming_assets_catalog_url(
+        "un0", "heroesofhistorygame.com"
+    ) == ("https://un0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin")
 
 
 def test_resolve_build_url_overrides_short_circuit():
@@ -159,16 +162,22 @@ def test_resolve_build_url_overrides_short_circuit():
 
 def test_resolve_webgl_catalog_url_prefers_streaming_assets(monkeypatch):
     class _Sess:
-        world = type("W", (), {"account_host": "zz0"})()
+        world = type(
+            "W", (), {"account_host": "zz0", "game_domain": "heroesgame.com"}
+        )()
 
     monkeypatch.setattr(wasm, "_url_exists", lambda url: True)
     url = wasm.resolve_webgl_catalog_url(object(), _Sess())
-    assert url.endswith("/StreamingAssets/aa/catalog.bin")
+    assert url == (
+        "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
+    )
 
 
 def test_resolve_webgl_catalog_url_falls_back_to_scrape(monkeypatch):
     class _Sess:
-        world = type("W", (), {"account_host": "zz0"})()
+        world = type(
+            "W", (), {"account_host": "zz0", "game_domain": "heroesgame.com"}
+        )()
 
     monkeypatch.setattr(wasm, "_url_exists", lambda url: False)
     url = wasm.resolve_webgl_catalog_url(

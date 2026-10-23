@@ -58,6 +58,20 @@ def test_resolve_world_aliases():
     assert resolve_world("zz1").account_host == "zz0"
 
 
+def test_resolve_world_zz0_uses_beta_game_domain():
+    world = resolve_world("zz0")
+    assert world.game_domain == "heroesgame.com"
+    assert world.account_origin == "https://zz0.heroesgame.com"
+    assert (
+        world.account_play_url
+        == "https://zz0.heroesgame.com/core/api/account/play"
+    )
+    assert (
+        world.game_url("game/startup")
+        == "https://zz1.heroesgame.com/game/startup"
+    )
+
+
 def test_resolve_world_unknown():
     with pytest.raises(ValueError, match="unknown world"):
         resolve_world("xx9")
@@ -346,7 +360,7 @@ def test_download_fixtures_webgl_skips_xapk_by_default(tmp_path: Path, monkeypat
                 json.dumps({"sessionId": "sess-zz"}).encode(),
             ),
             ("POST", "/game/loca"): (200, {}, b"loca"),
-            ("GET", "zz0.heroesofhistorygame.com"): (200, {}, redirect_html.encode()),
+            ("GET", "zz0.heroesgame.com"): (200, {}, redirect_html.encode()),
         }
     )
 
@@ -383,7 +397,7 @@ def test_download_fixtures_webgl_skips_xapk_by_default(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         "xapk_to_proto.wasm.resolve_webgl_catalog_url",
         lambda *a, **k: (
-            "https://zz0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
+            "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
         ),
     )
 
@@ -507,7 +521,7 @@ def test_download_fixtures_catalog_only_uses_streaming_assets(
     monkeypatch.setattr(
         "xapk_to_proto.wasm.resolve_webgl_catalog_url",
         lambda *a, **k: (
-            "https://zz0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
+            "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
         ),
     )
     monkeypatch.setattr(

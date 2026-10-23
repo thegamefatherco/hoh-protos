@@ -304,8 +304,10 @@ HOH_USERNAME=… HOH_PASSWORD=… uv run hoh-protos download-fixtures -v
 Credentials: `--username` / `--password`, or env `HOH_USERNAME` / `HOH_PASSWORD`
 (**env overwrites flags** when set). Optional `HOH_WORLD` / `HOH_LOCALE`
 likewise overwrite `--world` / `--locale`. Default world is `un0` (production);
-`zz0` / `zz1` target beta (`beta.heroesgame.com` / `zz0`/`zz1` hosts). Existing
-files are left alone unless you pass `--force`.
+`zz0` / `zz1` target beta (`beta.heroesgame.com` login; game hosts on
+`*.heroesgame.com`). Prod (`un0`/`un1`) still uses `*.heroesofhistorygame.com`
+for account/play and game APIs. Existing files are left alone unless you pass
+`--force`.
 
 `--only` tokens:
 
@@ -361,8 +363,9 @@ uv run hoh-protos run --from-wasm --world zz0 --username USER --password PASS \
 ```
 
 `--only catalog` does **not** need Build discovery: it downloads
-`https://{account_host}.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin`
-first, then falls back to a CDN `catalog_*.bin` scrape if that fails.
+`https://{account_host}.{game_domain}/StreamingAssets/aa/catalog.bin`
+(e.g. `zz0.heroesgame.com` on beta) first, then falls back to a CDN
+`catalog_*.bin` scrape if that fails.
 
 Fixture layout for a WebGL run:
 

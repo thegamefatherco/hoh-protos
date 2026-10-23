@@ -59,6 +59,12 @@ DEFAULT_ONLY = (FIXTURE_STARTUP, FIXTURE_GAMEDESIGN, FIXTURE_LOCA)
 _CLIENT_VERSION_RE = re.compile(r'const\s+clientVersion\s*=\s*"([^"]+)"')
 
 
+# Prod still serves game APIs on heroesofhistorygame.com; beta nginx 307s that
+# apex to heroesgame.com, and urllib will not follow 307 on POST.
+DOMAIN_PROD = "heroesofhistorygame.com"
+DOMAIN_BETA = "heroesgame.com"
+
+
 @dataclass(frozen=True)
 class WorldEndpoints:
     """Resolved InnoGames hosts for a fixture world key."""
@@ -67,28 +73,32 @@ class WorldEndpoints:
     sign_in: str
     account_host: str
     api_host: str
+    game_domain: str
 
     @property
     def login_url(self) -> str:
         return f"https://{self.sign_in}.heroesgame.com/api/login"
 
     @property
+    def account_origin(self) -> str:
+        return f"https://{self.account_host}.{self.game_domain}"
+
+    @property
     def account_play_url(self) -> str:
-        return (
-            f"https://{self.account_host}.heroesofhistorygame.com/core/api/account/play"
-        )
+        return f"{self.account_origin}/core/api/account/play"
 
     def game_url(self, path: str) -> str:
         path = path.lstrip("/")
-        return f"https://{self.api_host}.heroesofhistorygame.com/{path}"
+        return f"https://{self.api_host}.{self.game_domain}/{path}"
 
 
 # Fixture/CI keys (un0) and FoG-style aliases (un1) share the same hosts.
-_WORLD_TABLE: dict[str, tuple[str, str, str]] = {
-    "un0": ("www", "un0", "un1"),
-    "un1": ("www", "un0", "un1"),
-    "zz0": ("beta", "zz0", "zz1"),
-    "zz1": ("beta", "zz0", "zz1"),
+# Tuple: (sign_in, account_host, api_host, game_domain)
+_WORLD_TABLE: dict[str, tuple[str, str, str, str]] = {
+    "un0": ("www", "un0", "un1", DOMAIN_PROD),
+    "un1": ("www", "un0", "un1", DOMAIN_PROD),
+    "zz0": ("beta", "zz0", "zz1", DOMAIN_BETA),
+    "zz1": ("beta", "zz0", "zz1", DOMAIN_BETA),
 }
 
 KNOWN_WORLDS = tuple(sorted(_WORLD_TABLE))
@@ -122,7 +132,7 @@ class DownloadFixturesResult:
 def resolve_world(world: str) -> WorldEndpoints:
     key = world.strip().lower()
     try:
-        sign_in, account_host, api_host = _WORLD_TABLE[key]
+        sign_in, account_host, api_host, game_domain = _WORLD_TABLE[key]
     except KeyError as e:
         known = ", ".join(sorted(_WORLD_TABLE))
         raise ValueError(f"unknown world {world!r}; known: {known}") from e
@@ -131,6 +141,7 @@ def resolve_world(world: str) -> WorldEndpoints:
         sign_in=sign_in,
         account_host=account_host,
         api_host=api_host,
+        game_domain=game_domain,
     )
 
 
