@@ -40,25 +40,14 @@ jobs:
             version: "1.54.3"
             source: xapk
           - world: un0
-            version: "1.54.3"
-            source: xapk
-          - world: un0
-            version: "1.54.3"
-            source: xapk
-          - world: un0
             version: "1.55.5"
             source: xapk
           - world: un0
             version: "1.55.5"
-            source: xapk
-          - version: "1.55.5"
             source: xapk
           # Starting from 1.56.2, WASM should be used.
-          - version: "1.56.2"
-            source: wasm
-          - version: "1.56.2"
-            source: wasm
-          - version: "1.56.2"
+          - world: zz0
+            version: "1.56.2"
             source: wasm
 
     steps:
