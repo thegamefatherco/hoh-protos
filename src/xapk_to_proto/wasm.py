@@ -125,13 +125,13 @@ def parse_cdn_url_from_text(text: str) -> str | None:
     return raw
 
 
-def streaming_assets_catalog_url(account_host: str) -> str:
+def streaming_assets_catalog_url(account_host: str, game_domain: str) -> str:
     """Public Addressables catalog on the world master host."""
     host = account_host.strip().rstrip("/")
     if host.startswith("http://") or host.startswith("https://"):
         parsed = urlparse(host)
         host = parsed.netloc or host
-    return f"https://{host}.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin"
+    return f"https://{host}.{game_domain}/StreamingAssets/aa/catalog.bin"
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -442,7 +442,7 @@ def resolve_webgl_catalog_url(
 ) -> str:
     """Prefer StreamingAssets catalog; fall back to CDN scrape from shell text."""
     world = session.world
-    primary = streaming_assets_catalog_url(world.account_host)
+    primary = streaming_assets_catalog_url(world.account_host, world.game_domain)
     if verbose:
         print(f"  catalog: probe {primary}", flush=True)
     if _url_exists(primary):
@@ -459,17 +459,13 @@ def resolve_webgl_catalog_url(
     return discover_catalog_url(text)
 
 
-def _account_origin(account_host: str) -> str:
-    return f"https://{account_host}.heroesofhistorygame.com"
-
-
-def _script_base_url(page_url: str, account_host: str) -> str:
+def _script_base_url(page_url: str, account_origin: str) -> str:
     """Resolve relative script srcs against the world origin.
 
     Login redirect lives under ``/browser-session/…``; Scripts/ assets are
     served from the account host root, not that path prefix.
     """
-    origin = _account_origin(account_host)
+    origin = account_origin.rstrip("/")
     if "/browser-session" in (page_url or ""):
         return origin + "/"
     if page_url:
@@ -503,7 +499,7 @@ def collect_discovery_sources(
         fetches.append(("(redirect_html)", len(redirect_html.encode("utf-8"))))
 
     world = session.world
-    origin = _account_origin(world.account_host)
+    origin = world.account_origin
     shell_urls = [
         f"{origin}/",
         f"{origin}/config/unity.js",
@@ -536,7 +532,7 @@ def collect_discovery_sources(
         if text is None:
             continue
         chunks.append(text)
-        base = _script_base_url(url, world.account_host)
+        base = _script_base_url(url, origin)
         for src in _SCRIPT_SRC_RE.findall(text)[:16]:
             abs_src = urljoin(base, src)
             if abs_src in seen:
@@ -597,7 +593,7 @@ def collect_discovery_text(
 
     ``client`` must expose ``request(method, url, ...)`` like
     :class:`xapk_to_proto.game_api.GameApiClient`. ``session`` needs
-    ``.world.account_host`` and optionally ``.redirect_html``.
+    ``.world.account_origin`` and optionally ``.redirect_html``.
     """
     return collect_discovery_sources(
         client,
