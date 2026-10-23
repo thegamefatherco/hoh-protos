@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -223,6 +225,48 @@ def write_descriptor_bundle(game_pb: Path, out_path: Path) -> int:
 
     out_path.write_bytes(bundle.SerializeToString())
     return len(bundle.file)
+
+
+def write_protoc_descriptor_set(proto_dir: Path, out_path: Path) -> Path:
+    """Build protobuf.desc via ``protoc --descriptor_set_out --include_imports``."""
+    proto_dir = proto_dir.resolve()
+    out_path = out_path.resolve()
+    if not proto_dir.is_dir():
+        raise FileNotFoundError(f"proto directory not found: {proto_dir}")
+
+    protoc = shutil.which("protoc")
+    if protoc is None:
+        raise FileNotFoundError(
+            "protoc not found on PATH. Install the Protocol Buffers compiler "
+            "to use --with-proto-descriptors."
+        )
+
+    proto_files = sorted(proto_dir.rglob("*.proto"))
+    if not proto_files:
+        raise FileNotFoundError(f"no .proto files under {proto_dir}")
+
+    rel_inputs = [str(p.relative_to(proto_dir).as_posix()) for p in proto_files]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        protoc,
+        f"--descriptor_set_out={out_path}",
+        f"--proto_path={proto_dir}",
+        "--include_imports",
+        *rel_inputs,
+    ]
+    proc = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(
+            f"protoc failed (exit {proc.returncode})"
+            + (f": {detail}" if detail else "")
+        )
+    return out_path
 
 
 def run(inp: Path, out_dir: Path) -> EmitResult:

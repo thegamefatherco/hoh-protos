@@ -135,6 +135,7 @@ Example layout after a successful run with gamedesign + loca inputs
 output/un0/1.50.3/
 ├── descriptors.pb          # merged FileDescriptorSet (game schemas only)
 ├── descriptors_bundle.pb   # game + Google well-known types (self-contained)
+├── protobuf.desc           # protoc FileDescriptorSet (--with-proto-descriptors)
 ├── il2cpp/
 │   └── dump.cs             # Il2CppDumper output
 ├── proto/
@@ -149,7 +150,9 @@ Providing `--gamedesign-input` (or the fixture default under `--version`) also
 runs wirefix (schema repair) and emits GameDesign TypeScript constants under
 `gamedesign/constants/`. Use `-v` for step-by-step logs, `--skip-dump` if
 `il2cpp/dump.cs` already exists, and `--keep-work` to retain the scratch
-directory under `{output}/.work`.
+directory under `{output}/.work`. Pass `--with-proto-descriptors` on `run` or
+`emit` to also write `protobuf.desc` via `protoc --include_imports` (requires
+`protoc` on `PATH`).
 
 ## Supported versions and fixtures
 
@@ -250,7 +253,7 @@ default.
 | `hoh-protos unpack-assets --version V` | Extract images → `output/.../unpacked` (default source: `.../assets`) |
 | `hoh-protos link-assets --version V` | Resolve `asset_id`-style fields → `output/.../asset_links` |
 | `hoh-protos extract --metadata … --version V` | Build descriptors (`--metadata` still required) |
-| `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` |
+| `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` (optional `--with-proto-descriptors` → `protobuf.desc`) |
 | `hoh-protos wirefix --version V` | Correct wire types from the fixture gamedesign blob |
 | `hoh-protos gamedesign` | Decode GameDesignResponse → per-type JSON under `gamedesign/` (optional `--sqlite` → `gamedesign.db`) |
 | `hoh-protos definitions` | Decode one or more WrappedResponse/GameDesign blobs → `{blob-stem}/` (optional `--sqlite`) |

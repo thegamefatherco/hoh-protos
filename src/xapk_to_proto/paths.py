@@ -108,6 +108,10 @@ class VersionLayout:
         return self.root / "descriptors_bundle.pb"
 
     @property
+    def protobuf_desc(self) -> Path:
+        return self.root / "protobuf.desc"
+
+    @property
     def dump_cs(self) -> Path:
         return self.root / "il2cpp" / "dump.cs"
 

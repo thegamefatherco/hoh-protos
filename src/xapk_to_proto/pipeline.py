@@ -577,6 +577,10 @@ def _run_from_wasm(args: Namespace) -> int:
         )
         vlog(f"  descriptors_bundle.pb: {bundle_count} files", args.verbose)
 
+        if getattr(args, "with_proto_descriptors", False):
+            log("[+] Writing protobuf.desc via protoc...")
+            emit.write_protoc_descriptor_set(proto_dir, output / "protobuf.desc")
+
         summarize(output, proto_dir)
 
         _run_post_emit_steps(
@@ -692,6 +696,10 @@ def _run_from_xapk(args: Namespace) -> int:
             args.verbose,
         )
         vlog(f"  descriptors_bundle.pb: {bundle_count} files", args.verbose)
+
+        if getattr(args, "with_proto_descriptors", False):
+            log("[+] Writing protobuf.desc via protoc...")
+            emit.write_protoc_descriptor_set(proto_dir, output / "protobuf.desc")
 
         summarize(output, proto_dir)
 

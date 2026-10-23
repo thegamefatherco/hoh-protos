@@ -110,6 +110,9 @@ def test_version_layout_paths(tmp_path: Path, monkeypatch):
     assert layout.descriptors == (
         tmp_path / "output" / "un0" / "1.50.3" / "descriptors.pb"
     ).resolve()
+    assert layout.protobuf_desc == (
+        tmp_path / "output" / "un0" / "1.50.3" / "protobuf.desc"
+    ).resolve()
     assert layout.constants == (
         tmp_path / "output" / "un0" / "1.50.3" / "gamedesign" / "constants"
     ).resolve()

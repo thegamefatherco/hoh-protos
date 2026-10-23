@@ -153,6 +153,15 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="Output directory for .proto files (default: output/{world}/{version}/proto)",
     )
+    p.add_argument(
+        "--with-proto-descriptors",
+        action="store_true",
+        help=(
+            "After emitting .proto files, run protoc --descriptor_set_out "
+            "--include_imports to write protobuf.desc next to descriptors.pb "
+            "(requires protoc on PATH)"
+        ),
+    )
 
 
 def _add_setup_parser(sub: argparse._SubParsersAction) -> None:
@@ -304,6 +313,15 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         help="Do not delete work directory on success",
     )
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument(
+        "--with-proto-descriptors",
+        action="store_true",
+        help=(
+            "After emitting .proto files, run protoc --descriptor_set_out "
+            "--include_imports to write protobuf.desc next to descriptors.pb "
+            "(requires protoc on PATH)"
+        ),
+    )
     p.add_argument(
         "--gamedesign-input",
         type=Path,
@@ -1453,7 +1471,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         try:
             emit_result = emit.run(args.inp.resolve(), args.out_dir.resolve())
-        except FileNotFoundError as e:
+            if args.with_proto_descriptors:
+                desc_out = args.inp.resolve().parent / "protobuf.desc"
+                emit.write_protoc_descriptor_set(
+                    args.out_dir.resolve(), desc_out
+                )
+                print(f"wrote {desc_out}")
+        except (FileNotFoundError, RuntimeError) as e:
             print(e, file=sys.stderr)
             return 1
         print(

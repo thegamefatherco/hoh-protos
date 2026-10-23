@@ -254,6 +254,18 @@ def test_emit_version_defaults(tmp_path: Path, monkeypatch):
     assert args.out_dir == (
         tmp_path / "output" / "un0" / "1.50.3" / "proto"
     ).resolve()
+    assert args.with_proto_descriptors is False
+
+
+def test_with_proto_descriptors_flag_on_emit_and_run():
+    emit_args = build_parser().parse_args(
+        ["emit", "--version", "1.50.3", "--with-proto-descriptors"]
+    )
+    assert emit_args.with_proto_descriptors is True
+    run_args = build_parser().parse_args(
+        ["run", "--version", "1.50.3", "--with-proto-descriptors"]
+    )
+    assert run_args.with_proto_descriptors is True
 
 
 def test_gamedesign_version_defaults(tmp_path: Path, monkeypatch):
