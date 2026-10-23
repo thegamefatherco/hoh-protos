@@ -34,6 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        world: [un0, zz0]
         include:
           # Keep these versions as xapk only.
           - world: un0
