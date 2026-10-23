@@ -352,6 +352,14 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help=(
+            "Also write sibling SQLite DBs for decoded gamedesign/startup/"
+            "definitions blobs ({out-dir}.db)"
+        ),
+    )
+    p.add_argument(
         "--gamedesign-constants",
         action="store_true",
         help=(
@@ -482,6 +490,11 @@ def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
             "(default: output/{world}/{version}/gamedesign)"
         ),
     )
+    p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help="Also write a sibling SQLite DB at {out-dir}.db",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -598,6 +611,11 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
             "Output directory; a subdir named after each blob is created "
             "(default: output/{world}/{version}/)"
         ),
+    )
+    p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help="Also write a sibling SQLite DB at {out-dir}/{blob-stem}.db per input",
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -1463,6 +1481,7 @@ def main(argv: list[str] | None = None) -> int:
                 out_dir=args.out_dir.resolve(),
                 input_path=args.input.resolve(),
                 verbose=args.verbose,
+                sqlite=args.sqlite,
             )
         except (FileNotFoundError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)
@@ -1472,6 +1491,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"source: {result.source}")
         print(f"entries: {result.total_entries}")
         print(f"wrote {args.out_dir.resolve() / 'manifest.json'}")
+        if result.sqlite_path:
+            print(f"wrote {result.sqlite_path}")
         return 0
 
     if args.command == "gamedesign-constants":
@@ -1531,6 +1552,7 @@ def main(argv: list[str] | None = None) -> int:
                     out_dir=dest,
                     input_path=blob,
                     verbose=args.verbose,
+                    sqlite=args.sqlite,
                 )
             except (FileNotFoundError, ValueError) as e:
                 print(f"error: {e}", file=sys.stderr)
@@ -1538,6 +1560,8 @@ def main(argv: list[str] | None = None) -> int:
             for warning in result.warnings:
                 print(f"warning [{result.source}]: {warning}", file=sys.stderr)
             print(f"{result.source}: {result.total_entries} entries -> {dest}")
+            if result.sqlite_path:
+                print(f"  sqlite: {result.sqlite_path}")
         return 0
 
     if args.command == "loca":

@@ -61,6 +61,7 @@ def _decode_definitions_blob(
     blob: Path,
     dest: Path,
     verbose: bool,
+    sqlite: bool = False,
 ) -> Path | None:
     if not blob.is_file():
         print(f"warning: definitions input not found: {blob}", file=sys.stderr)
@@ -70,6 +71,7 @@ def _decode_definitions_blob(
         out_dir=dest,
         input_path=blob,
         verbose=verbose,
+        sqlite=sqlite,
     )
     for warning in defs_result.warnings:
         print(f"warning [{defs_result.source}]: {warning}", file=sys.stderr)
@@ -78,6 +80,8 @@ def _decode_definitions_blob(
         f"{defs_result.total_entries} entries -> {dest}",
         flush=True,
     )
+    if defs_result.sqlite_path:
+        print(f"  sqlite[{defs_result.source}]: {defs_result.sqlite_path}", flush=True)
     return dest
 
 
@@ -208,6 +212,7 @@ def _run_post_emit_steps(
     definition_dirs: list[Path] = []
     gd_input = getattr(args, "gamedesign_input", None)
     want_constants = bool(getattr(args, "gamedesign_constants", False) or gd_input)
+    want_sqlite = bool(getattr(args, "sqlite", False))
 
     if want_constants:
         gc_out = (
@@ -238,6 +243,7 @@ def _run_post_emit_steps(
             blob=gd_path,
             dest=gd_out,
             verbose=args.verbose,
+            sqlite=want_sqlite,
         )
         if decoded is not None:
             definition_dirs.append(decoded)
@@ -252,6 +258,7 @@ def _run_post_emit_steps(
             blob=startup_path,
             dest=startup_out,
             verbose=args.verbose,
+            sqlite=want_sqlite,
         )
         if decoded is not None:
             definition_dirs.append(decoded)
@@ -269,6 +276,7 @@ def _run_post_emit_steps(
                 blob=blob,
                 dest=dest,
                 verbose=args.verbose,
+                sqlite=want_sqlite,
             )
             if decoded is not None:
                 definition_dirs.append(decoded)

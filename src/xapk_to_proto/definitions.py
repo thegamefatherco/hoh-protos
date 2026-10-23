@@ -17,8 +17,10 @@ This module reuses the descriptor-pool plumbing from :mod:`gamedesign`.
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from google.protobuf import any_pb2, descriptor_pool
 
@@ -44,6 +46,83 @@ class DefinitionsExportResult:
     total_entries: int
     type_counts: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    sqlite_path: str | None = None
+
+
+def sqlite_path_for(out_dir: Path) -> Path:
+    """Sibling DB path for a definitions JSON out-dir (``{out_dir}.db``)."""
+    return Path(f"{out_dir}.db")
+
+
+def write_definitions_sqlite(
+    db_path: Path,
+    *,
+    source: str,
+    source_path: Path,
+    grouped: dict[str, list[dict[str, Any]]],
+    type_counts: dict[str, int],
+    total_entries: int,
+    warnings: list[str],
+) -> Path:
+    """Replace ``db_path`` with a fresh SQLite export of definition ProtoJSON."""
+    db_path = db_path.resolve()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if db_path.is_file():
+        db_path.unlink()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE manifest (
+              source TEXT NOT NULL,
+              source_path TEXT NOT NULL,
+              total_entries INTEGER NOT NULL,
+              type_counts TEXT NOT NULL,
+              warnings TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE entries (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              type TEXT NOT NULL,
+              json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX idx_entries_type ON entries(type)"
+        )
+        conn.execute(
+            """
+            INSERT INTO manifest (
+              source, source_path, total_entries, type_counts, warnings
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                source,
+                str(source_path),
+                total_entries,
+                json.dumps(type_counts, ensure_ascii=False),
+                json.dumps(warnings, ensure_ascii=False),
+            ),
+        )
+        rows = [
+            (type_name, json.dumps(item, ensure_ascii=False))
+            for type_name, items in sorted(grouped.items())
+            for item in items
+        ]
+        conn.executemany(
+            "INSERT INTO entries (type, json) VALUES (?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return db_path
 
 
 def _collect_context_anys(
@@ -136,6 +215,7 @@ def write_definitions_export(
     source_path: Path,
     entries: list[DecodedEntry],
     warnings: list[str],
+    sqlite: bool = False,
 ) -> DefinitionsExportResult:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -164,12 +244,26 @@ def write_definitions_export(
         encoding="utf-8",
     )
 
+    sqlite_path: str | None = None
+    if sqlite:
+        db_path = write_definitions_sqlite(
+            sqlite_path_for(out_dir),
+            source=source,
+            source_path=source_path,
+            grouped=grouped,
+            type_counts=type_counts,
+            total_entries=len(entries),
+            warnings=warnings,
+        )
+        sqlite_path = str(db_path)
+
     return DefinitionsExportResult(
         source=source,
         source_path=str(source_path),
         total_entries=len(entries),
         type_counts=type_counts,
         warnings=warnings,
+        sqlite_path=sqlite_path,
     )
 
 
@@ -179,6 +273,7 @@ def run_definitions_export(
     out_dir: Path,
     input_path: Path,
     verbose: bool = False,
+    sqlite: bool = False,
 ) -> DefinitionsExportResult:
     if not input_path.is_file():
         raise FileNotFoundError(f"definitions input not found: {input_path}")
@@ -194,4 +289,5 @@ def run_definitions_export(
         source_path=input_path.resolve(),
         entries=entries,
         warnings=warnings,
+        sqlite=sqlite,
     )

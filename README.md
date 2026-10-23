@@ -252,8 +252,8 @@ default.
 | `hoh-protos extract --metadata … --version V` | Build descriptors (`--metadata` still required) |
 | `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` |
 | `hoh-protos wirefix --version V` | Correct wire types from the fixture gamedesign blob |
-| `hoh-protos gamedesign` | Decode GameDesignResponse → per-type JSON under `gamedesign/` |
-| `hoh-protos definitions` | Decode one or more WrappedResponse/GameDesign blobs → `{blob-stem}/` |
+| `hoh-protos gamedesign` | Decode GameDesignResponse → per-type JSON under `gamedesign/` (optional `--sqlite` → `gamedesign.db`) |
+| `hoh-protos definitions` | Decode one or more WrappedResponse/GameDesign blobs → `{blob-stem}/` (optional `--sqlite`) |
 | `hoh-protos loca` | Decode CompressedLocaResponse → English catalogs under `loca/` |
 | `hoh-protos gamedesign-constants --version V` | Emit GameDesign string ID enums as TypeScript |
 
@@ -541,6 +541,10 @@ This writes:
 - `output/un0/1.50.3/loca/` — English catalog
 - `output/un0/1.50.3/startup/` — only if a local `startup` fixture is present
   (optional; not required for `run` / acceptance)
+
+Pass `--sqlite` on `run`, `gamedesign`, or `definitions` to also write a sibling
+SQLite DB next to each decoded out-dir (e.g. `gamedesign.db`, `startup.db`) with
+the same ProtoJSON entries in an `entries` table plus a `manifest` row.
 
 For unusual blobs, `--definitions-input` is still available (repeatable) and
 writes under `{output}/{blob-stem}/`. Use the standalone `hoh-protos definitions`

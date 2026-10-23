@@ -74,7 +74,9 @@ class WorldEndpoints:
 
     @property
     def account_play_url(self) -> str:
-        return f"https://{self.account_host}.heroesofhistorygame.com/core/api/account/play"
+        return (
+            f"https://{self.account_host}.heroesofhistorygame.com/core/api/account/play"
+        )
 
     def game_url(self, path: str) -> str:
         path = path.lstrip("/")
