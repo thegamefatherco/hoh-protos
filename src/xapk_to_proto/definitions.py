@@ -67,6 +67,10 @@ def write_definitions_sqlite(
     """Replace ``db_path`` with a fresh SQLite export of definition ProtoJSON."""
     db_path = db_path.resolve()
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    if db_path == source_path.resolve():
+        raise ValueError(
+            f"SQLite output would overwrite definitions input: {db_path}"
+        )
     if db_path.is_file():
         db_path.unlink()
 
