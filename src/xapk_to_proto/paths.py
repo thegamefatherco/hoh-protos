@@ -112,8 +112,20 @@ class VersionLayout:
         return self.root / "il2cpp" / "dump.cs"
 
     @property
+    def stringliteral(self) -> Path:
+        return self.root / "il2cpp" / "stringliteral.json"
+
+    @property
     def proto(self) -> Path:
         return self.root / "proto"
+
+    @property
+    def proto_api(self) -> Path:
+        return self.root / "proto" / "api"
+
+    @property
+    def api_catalog(self) -> Path:
+        return self.root / "api" / "endpoints.json"
 
     @property
     def assets(self) -> Path:
