@@ -21,6 +21,7 @@ human-readable `.proto` files plus a `descriptors.pb` blob.
 - [Quick start](#quick-start)
 - [Supported versions and fixtures](#supported-versions-and-fixtures)
 - [Using with Buf](#using-with-buf-typescript--other-languages)
+  - [Synthetic gRPC services + TypeScript clients](#synthetic-grpc-services--typescript-clients)
 - [Commands](#commands)
   - [Downloading the XAPK](#downloading-the-xapk)
   - [Downloading server fixtures](#downloading-server-fixtures)
@@ -230,6 +231,44 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair
 IL2CPP metadata quirks (`object` placeholders, mis-scoped `Struct`, nested
 enums, C# `.Types.` segments) so `protoc` and Buf accept the tree.
 
+### Synthetic gRPC services + TypeScript clients
+
+`hoh-protos emit-api` (also run at the end of `hoh-protos run`) builds:
+
+- `api/endpoints.json` — path ↔ Call ↔ request/response type catalog
+- `proto/api/*.proto` — synthetic `service` / `rpc` definitions that import the
+  existing message protos
+
+Message-only protos do **not** produce gRPC clients. With services present,
+[thesayyn/protoc-gen-ts](https://github.com/thesayyn/protoc-gen-ts) emits
+`{Service}Client` and `Unimplemented{Service}Service` (see their
+[RPC docs](https://github.com/thesayyn/protoc-gen-ts/blob/main/docs/rpc.md)).
+
+Those clients speak **gRPC / gRPC-Web**, not the live game API. HoH uses plain
+HTTP (`POST /game/...`) with `Content-Type: application/x-protobuf`. Use the
+generated **message** types plus `endpoints.json` for real calls; treat the
+generated `*Client` as stubs for mocks, a local gateway, or tooling — not as a
+drop-in game SDK.
+
+Example consumer `buf.gen.yaml` for thesayyn/protoc-gen-ts (options differ from
+`@protobuf-ts/plugin`; `client_grpc1` / `server_grpc1` are not this plugin):
+
+```yaml
+version: v2
+plugins:
+  - local: ./node_modules/.bin/protoc-gen-ts
+    out: src/generated/
+    include_imports: true
+    strategy: all
+    opt:
+      - target=node
+      - unary_rpc_promise=true
+```
+
+Point the Buf module at the full `proto/` tree (messages + `api/` +
+`google/protobuf/`). Map each RPC to its HTTP path via `endpoints.json`
+(`path`, `service`, `rpc`, `request_type`, `response_type`).
+
 ## Commands
 
 Most path-taking commands accept `--version` (and optional `--world`) and
@@ -251,6 +290,7 @@ default.
 | `hoh-protos link-assets --version V` | Resolve `asset_id`-style fields → `output/.../asset_links` |
 | `hoh-protos extract --metadata … --version V` | Build descriptors (`--metadata` still required) |
 | `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` |
+| `hoh-protos emit-api --version V` | Emit `api/endpoints.json` + synthetic `proto/api/*.proto` services from IL2CPP |
 | `hoh-protos wirefix --version V` | Correct wire types from the fixture gamedesign blob |
 | `hoh-protos gamedesign` | Decode GameDesignResponse → per-type JSON under `gamedesign/` (optional `--sqlite` → `gamedesign.db`) |
 | `hoh-protos definitions` | Decode one or more WrappedResponse/GameDesign blobs → `{blob-stem}/` (optional `--sqlite`) |

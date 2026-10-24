@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from xapk_to_proto import (
+    api_catalog,
     apkpure,
     assetlink,
     assets,
@@ -29,6 +30,7 @@ _SUBCOMMANDS = frozenset(
         "check-deps",
         "extract",
         "emit",
+        "emit-api",
         "run",
         "gamedesign",
         "gamedesign-constants",
@@ -152,6 +154,63 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help="Output directory for .proto files (default: output/{world}/{version}/proto)",
+    )
+
+
+def _add_emit_api_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "emit-api",
+        help="Emit API endpoints.json + synthetic gRPC service protos from IL2CPP",
+        description=(
+            "Parse RequestMapping factories and /game|/dev path literals from "
+            "Il2CppDumper output, write api/endpoints.json, and emit "
+            "proto/api/*.proto service definitions for client codegen "
+            "(e.g. thesayyn/protoc-gen-ts)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos emit-api --version 1.56.2\n"
+            "  hoh-protos emit-api "
+            "--dump-cs output/un0/1.56.2/il2cpp/dump.cs "
+            "--stringliteral output/un0/1.56.2/il2cpp/stringliteral.json "
+            "--proto-dir output/un0/1.56.2/proto "
+            "--catalog output/un0/1.56.2/api/endpoints.json\n"
+        ),
+    )
+    _add_world_version_args(p)
+    p.add_argument(
+        "--dump-cs",
+        type=Path,
+        default=None,
+        help="Il2CppDumper dump.cs path (default: output/{world}/{version}/il2cpp/dump.cs)",
+    )
+    p.add_argument(
+        "--stringliteral",
+        type=Path,
+        default=None,
+        help=(
+            "Il2CppDumper stringliteral.json path "
+            "(default: output/{world}/{version}/il2cpp/stringliteral.json)"
+        ),
+    )
+    p.add_argument(
+        "--proto-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Existing message .proto directory; api/ services are written here "
+            "(default: output/{world}/{version}/proto)"
+        ),
+    )
+    p.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        help=(
+            "Output endpoints.json path "
+            "(default: output/{world}/{version}/api/endpoints.json)"
+        ),
     )
 
 
@@ -1141,6 +1200,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_check_deps_parser(sub)
     _add_extract_parser(sub)
     _add_emit_parser(sub)
+    _add_emit_api_parser(sub)
     _add_run_parser(sub)
     _add_gamedesign_parser(sub)
     _add_gamedesign_constants_parser(sub)
@@ -1186,6 +1246,28 @@ def _resolve_emit_args(args: argparse.Namespace) -> str | None:
         missing.append("--in")
     if args.out_dir is None:
         missing.append("--out-dir")
+    if missing:
+        return _err_need_version_or_paths(*missing)
+    return None
+
+
+def _resolve_emit_api_args(args: argparse.Namespace) -> str | None:
+    layout = _layout_from_args(args)
+    args.dump_cs = coalesce(args.dump_cs, layout.dump_cs if layout else None)
+    args.stringliteral = coalesce(
+        args.stringliteral, layout.stringliteral if layout else None
+    )
+    args.proto_dir = coalesce(args.proto_dir, layout.proto if layout else None)
+    args.catalog = coalesce(args.catalog, layout.api_catalog if layout else None)
+    missing = []
+    if args.dump_cs is None:
+        missing.append("--dump-cs")
+    if args.stringliteral is None:
+        missing.append("--stringliteral")
+    if args.proto_dir is None:
+        missing.append("--proto-dir")
+    if args.catalog is None:
+        missing.append("--catalog")
     if missing:
         return _err_need_version_or_paths(*missing)
     return None
@@ -1460,6 +1542,31 @@ def main(argv: list[str] | None = None) -> int:
             f"wrote {emit_result.game_files} game + "
             f"{emit_result.well_known_files} well-known .proto files to "
             f"{args.out_dir.resolve()}"
+        )
+        return 0
+
+    if args.command == "emit-api":
+        err = _resolve_emit_api_args(args)
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        try:
+            result = api_catalog.run_emit_api(
+                dump_cs=args.dump_cs.resolve(),
+                stringliteral=args.stringliteral.resolve(),
+                proto_dir=args.proto_dir.resolve(),
+                catalog_path=args.catalog.resolve(),
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"wrote {result.endpoint_count} endpoints "
+            f"({result.service_count} services, "
+            f"{result.proto_files_written} proto files) to "
+            f"{result.catalog_path} and {result.proto_api_dir}"
         )
         return 0
 

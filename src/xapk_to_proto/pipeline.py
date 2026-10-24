@@ -10,6 +10,7 @@ from pathlib import Path
 from google.protobuf import descriptor_pb2
 
 from xapk_to_proto import (
+    api_catalog,
     assetlink,
     assets,
     definitions,
@@ -200,6 +201,48 @@ def _ensure_webgl_fixtures(
     return result.out_dir
 
 
+def _emit_api_catalog(
+    *,
+    output: Path,
+    dump_cs: Path,
+    proto_dir: Path,
+    verbose: bool,
+) -> None:
+    """Emit api/endpoints.json + proto/api/*.proto when IL2CPP strings exist."""
+    stringliteral = output / "il2cpp" / "stringliteral.json"
+    if not stringliteral.is_file():
+        print(
+            f"warning: skip emit-api (stringliteral.json missing: {stringliteral})",
+            file=sys.stderr,
+        )
+        return
+    if not dump_cs.is_file():
+        print(f"warning: skip emit-api (dump.cs missing: {dump_cs})", file=sys.stderr)
+        return
+    if not proto_dir.is_dir():
+        print(
+            f"warning: skip emit-api (proto dir missing: {proto_dir})",
+            file=sys.stderr,
+        )
+        return
+
+    log("[+] Emitting API catalog + synthetic gRPC services...")
+    result = api_catalog.run_emit_api(
+        dump_cs=dump_cs,
+        stringliteral=stringliteral,
+        proto_dir=proto_dir,
+        catalog_path=output / "api" / "endpoints.json",
+    )
+    for warning in result.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    print(
+        f"  api: {result.endpoint_count} endpoints, "
+        f"{result.service_count} services -> {result.catalog_path}",
+        flush=True,
+    )
+    vlog(f"  proto/api: {result.proto_files_written} files", verbose)
+
+
 def _run_post_emit_steps(
     args: Namespace,
     *,
@@ -213,6 +256,13 @@ def _run_post_emit_steps(
     gd_input = getattr(args, "gamedesign_input", None)
     want_constants = bool(getattr(args, "gamedesign_constants", False) or gd_input)
     want_sqlite = bool(getattr(args, "sqlite", False))
+
+    _emit_api_catalog(
+        output=output,
+        dump_cs=dump_cs,
+        proto_dir=output / "proto",
+        verbose=args.verbose,
+    )
 
     if want_constants:
         gc_out = (
