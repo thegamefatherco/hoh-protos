@@ -19,6 +19,10 @@ from xapk_to_proto.game_api import (
 DEFAULT_OUTPUT_ROOT = Path("output")
 DEFAULT_FIXTURES_ROOT = Path("fixtures")
 GAME_XAPK_NAME = "game.xapk"
+GAME_WASM_NAME = "game.wasm"
+GAME_DATA_NAME = "game.data"
+GAME_METADATA_NAME = "global-metadata.dat"
+GAME_CATALOG_NAME = "catalog.bin"
 
 # Semantic-ish client versions used by HoH (e.g. 1.50.3).
 _VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)*$")
@@ -61,6 +65,29 @@ class VersionLayout:
         return self.fixtures / GAME_XAPK_NAME
 
     @property
+    def wasm(self) -> Path:
+        return self.fixtures / GAME_WASM_NAME
+
+    @property
+    def data(self) -> Path:
+        return self.fixtures / GAME_DATA_NAME
+
+    @property
+    def metadata(self) -> Path:
+        return self.fixtures / GAME_METADATA_NAME
+
+    @property
+    def catalog(self) -> Path:
+        """Normalized ``catalog.bin``, or the newest ``catalog_*.bin`` if present."""
+        normalized = self.fixtures / GAME_CATALOG_NAME
+        if normalized.is_file():
+            return normalized
+        matches = sorted(self.fixtures.glob("catalog_*.bin"))
+        if matches:
+            return matches[-1]
+        return normalized
+
+    @property
     def gamedesign(self) -> Path:
         return self.fixtures / FIXTURE_GAMEDESIGN
 
@@ -85,8 +112,20 @@ class VersionLayout:
         return self.root / "il2cpp" / "dump.cs"
 
     @property
+    def stringliteral(self) -> Path:
+        return self.root / "il2cpp" / "stringliteral.json"
+
+    @property
     def proto(self) -> Path:
         return self.root / "proto"
+
+    @property
+    def proto_api(self) -> Path:
+        return self.root / "proto" / "api"
+
+    @property
+    def api_catalog(self) -> Path:
+        return self.root / "api" / "endpoints.json"
 
     @property
     def assets(self) -> Path:
@@ -132,17 +171,17 @@ def version_from_filename(path: Path) -> str | None:
 
 
 def infer_world_version_from_path(
-    xapk: Path,
+    path: Path,
     *,
     known_worlds: tuple[str, ...] = KNOWN_WORLDS,
 ) -> tuple[str | None, str | None]:
-    """Infer ``(world, version)`` when ``xapk`` lives under ``…/{world}/{version}/``.
+    """Infer ``(world, version)`` when ``path`` lives under ``…/{world}/{version}/``.
 
-    Recognizes both ``fixtures/{world}/{version}/game.xapk`` and
-    ``output/{world}/{version}/…`` layouts. Returns ``(None, None)`` pieces
-    that cannot be inferred.
+    Recognizes fixtures/output layouts for ``game.xapk``, ``game.wasm``,
+    ``catalog.bin``, and other version-scoped artifacts. Returns ``(None, None)``
+    pieces that cannot be inferred.
     """
-    resolved = xapk.resolve()
+    resolved = path.resolve()
     parent = resolved.parent
     version: str | None = None
     world: str | None = None

@@ -58,6 +58,20 @@ def test_resolve_world_aliases():
     assert resolve_world("zz1").account_host == "zz0"
 
 
+def test_resolve_world_zz0_uses_beta_game_domain():
+    world = resolve_world("zz0")
+    assert world.game_domain == "heroesgame.com"
+    assert world.account_origin == "https://zz0.heroesgame.com"
+    assert (
+        world.account_play_url
+        == "https://zz0.heroesgame.com/core/api/account/play"
+    )
+    assert (
+        world.game_url("game/startup")
+        == "https://zz1.heroesgame.com/game/startup"
+    )
+
+
 def test_resolve_world_unknown():
     with pytest.raises(ValueError, match="unknown world"):
         resolve_world("xx9")
@@ -74,6 +88,11 @@ def test_parse_only_defaults_and_aliases():
         game_api.FIXTURE_LOCA,
     )
     assert parse_only(["loca-compressed"]) == (game_api.FIXTURE_LOCA,)
+    assert parse_only("wasm,catalog,loca") == (
+        game_api.FIXTURE_WASM,
+        game_api.FIXTURE_CATALOG,
+        game_api.FIXTURE_LOCA,
+    )
 
 
 def test_parse_only_rejects_unknown():
@@ -316,3 +335,217 @@ def test_download_fixtures_includes_game_xapk(tmp_path: Path, monkeypatch):
     assert result.xapk.path == tmp_path / "un0" / "1.50.3" / "game.xapk"
     assert result.xapk.path.read_bytes() == b"xapk-bytes"
     assert any(f.name == "game.xapk" for f in result.files)
+
+
+def test_download_fixtures_webgl_skips_xapk_by_default(tmp_path: Path, monkeypatch):
+    redirect_html = (
+        'const clientVersion = "1.54.0";\n'
+        'const codeFileName = "aabb.wasm";\n'
+        'const dataFileName = "ccdd.data";\n'
+        "catalog_2026.09.14.13.40.12.bin\n"
+    )
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {"redirectUrl": "https://beta.heroesgame.com/play"}
+                ).encode(),
+            ),
+            ("GET", "/play"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-zz"}).encode(),
+            ),
+            ("POST", "/game/loca"): (200, {}, b"loca"),
+            ("GET", "zz0.heroesgame.com"): (200, {}, redirect_html.encode()),
+        }
+    )
+
+    from xapk_to_proto.xapk import METADATA_MAGIC
+    import struct
+
+    from xapk_to_proto import wasm as wasm_mod
+    from tests.test_wasm import _pack_unity_web_data
+
+    fake_meta = struct.pack("<II", METADATA_MAGIC, 39) + b"\x00" * 32
+    # Minimal UnityWebData with metadata member.
+    data_blob = _pack_unity_web_data(
+        {"Il2CppData/Metadata/global-metadata.dat": fake_meta}
+    )
+
+    def fake_cdn_get(url: str) -> bytes:
+        if url.endswith(".wasm"):
+            return b"\x00asmfake"
+        if url.endswith(".data"):
+            return data_blob
+        if url.endswith(".bin"):
+            return b"catalog-bytes"
+        raise AssertionError(url)
+
+    monkeypatch.setattr("xapk_to_proto.wasm._cdn_get", fake_cdn_get)
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.collect_discovery_sources",
+        lambda *a, **k: wasm_mod.DiscoverySources(
+            text=redirect_html,
+            cdn_root="https://heczz.innogamescdn.com/",
+            fetches=(("(redirect_html)", len(redirect_html)),),
+        ),
+    )
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.resolve_webgl_catalog_url",
+        lambda *a, **k: (
+            "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
+        ),
+    )
+
+    xapk_calls: list[object] = []
+
+    def fake_download_xapk(**kwargs):
+        xapk_calls.append(kwargs)
+        raise AssertionError("XAPK should be skipped for wasm/catalog")
+
+    monkeypatch.setattr("xapk_to_proto.apkpure.download_xapk", fake_download_xapk)
+
+    result = download_fixtures(
+        username="u",
+        password="p",
+        world="zz0",
+        output=tmp_path,
+        only="wasm,catalog,loca",
+        force=True,
+        client=client,
+        environ={},
+    )
+    assert xapk_calls == []
+    assert result.xapk is None
+    by_name = {f.name: f for f in result.files}
+    assert "game.wasm" in by_name
+    assert "game.data" in by_name
+    assert "global-metadata.dat" in by_name
+    assert "catalog.bin" in by_name
+    assert "loca-compressed" in by_name
+    assert by_name["catalog.bin"].path.read_bytes() == b"catalog-bytes"
+
+
+def test_download_fixtures_wasm_url_overrides_skip_discovery(
+    tmp_path: Path, monkeypatch
+):
+    redirect_html = 'const clientVersion = "1.56.2";'
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {"redirectUrl": "https://beta.heroesgame.com/play"}
+                ).encode(),
+            ),
+            ("GET", "/play"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-zz"}).encode(),
+            ),
+        }
+    )
+
+    from xapk_to_proto.xapk import METADATA_MAGIC
+    import struct
+
+    from tests.test_wasm import _pack_unity_web_data
+
+    fake_meta = struct.pack("<II", METADATA_MAGIC, 39) + b"\x00" * 32
+    data_blob = _pack_unity_web_data(
+        {"Il2CppData/Metadata/global-metadata.dat": fake_meta}
+    )
+    discovered: list[str] = []
+
+    def boom_discovery(*a, **k):
+        discovered.append("called")
+        raise AssertionError("discovery should be skipped when overrides are set")
+
+    def fake_cdn_get(url: str) -> bytes:
+        if url.endswith(".wasm"):
+            return b"\x00asmfake"
+        if url.endswith(".data"):
+            return data_blob
+        raise AssertionError(url)
+
+    monkeypatch.setattr("xapk_to_proto.wasm._cdn_get", fake_cdn_get)
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.collect_discovery_sources", boom_discovery
+    )
+
+    result = download_fixtures(
+        username="u",
+        password="p",
+        world="zz0",
+        output=tmp_path,
+        only="wasm",
+        force=True,
+        client=client,
+        environ={},
+        wasm_url="aabb.wasm",
+        data_url="ccdd.data",
+    )
+    assert discovered == []
+    by_name = {f.name: f for f in result.files}
+    assert by_name["game.wasm"].path.read_bytes() == b"\x00asmfake"
+
+
+def test_download_fixtures_catalog_only_uses_streaming_assets(
+    tmp_path: Path, monkeypatch
+):
+    redirect_html = 'const clientVersion = "1.56.2";'
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {"redirectUrl": "https://beta.heroesgame.com/play"}
+                ).encode(),
+            ),
+            ("GET", "/play"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-zz"}).encode(),
+            ),
+        }
+    )
+
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.resolve_webgl_catalog_url",
+        lambda *a, **k: (
+            "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
+        ),
+    )
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm._cdn_get", lambda url: b"streaming-catalog"
+    )
+    discovery_calls: list[str] = []
+
+    def boom_discovery(*a, **k):
+        discovery_calls.append("called")
+        raise AssertionError("catalog-only should not scrape Build URLs")
+
+    monkeypatch.setattr(
+        "xapk_to_proto.wasm.collect_discovery_sources", boom_discovery
+    )
+
+    result = download_fixtures(
+        username="u",
+        password="p",
+        world="zz0",
+        output=tmp_path,
+        only="catalog",
+        force=True,
+        client=client,
+        environ={},
+    )
+    assert discovery_calls == []
+    assert result.files[0].path.read_bytes() == b"streaming-catalog"

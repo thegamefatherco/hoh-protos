@@ -44,7 +44,7 @@ def _filter_dumper_output(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _failure_message(combined: str) -> str:
+def _failure_message(combined: str, *, binary: Path | None = None) -> str:
     filtered = _filter_dumper_output(combined)
     match = _VERSION_ERROR.search(filtered)
     if match:
@@ -62,9 +62,26 @@ def _failure_message(combined: str) -> str:
             "old .NET 8 cache).\n\n"
             f"{filtered}"
         )
+    is_wasm = binary is not None and binary.suffix.lower() == ".wasm"
+    auto_scan_hint = ""
+    if is_wasm and (
+        "ERROR: Can't use auto mode to detect IL2CPP" in filtered
+        or "CodeRegistration" in filtered
+        or "auto mode" in filtered.lower()
+    ):
+        auto_scan_hint = (
+            "\n\nWebGL/WASM note: Il2CppDumper auto-scan often fails on Unity 6 "
+            "WebAssembly builds. Manual CodeRegistration/MetadataRegistration "
+            "flags are not supported in this CLI yet — try the Android XAPK "
+            "path (`hoh-protos run` without --from-wasm) if available, or a "
+            "dumper fork with improved WASM scanning."
+        )
     if filtered:
-        return f"Il2CppDumper failed — dump.cs was not created\n\n{filtered}"
-    return "Il2CppDumper failed — dump.cs was not created"
+        return (
+            f"Il2CppDumper failed — dump.cs was not created{auto_scan_hint}\n\n"
+            f"{filtered}"
+        )
+    return f"Il2CppDumper failed — dump.cs was not created{auto_scan_hint}"
 
 
 def _drain_pipe(pipe, chunks: list[str], tee: bool) -> None:
@@ -181,7 +198,7 @@ def run_il2cpp_dumper(
         return
 
     combined = "".join(stdout_chunks) + "".join(stderr_chunks)
-    raise RuntimeError(_failure_message(combined))
+    raise RuntimeError(_failure_message(combined, binary=libil2cpp))
 
 
 def validate_dump(dump_cs: Path) -> None:

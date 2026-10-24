@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from xapk_to_proto import (
+    api_catalog,
     apkpure,
     assetlink,
     assets,
@@ -29,6 +30,7 @@ _SUBCOMMANDS = frozenset(
         "check-deps",
         "extract",
         "emit",
+        "emit-api",
         "run",
         "gamedesign",
         "gamedesign-constants",
@@ -102,10 +104,10 @@ def _add_extract_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos extract --metadata global-metadata.dat --version 1.50.3\n"
+            "  hoh-protos extract --metadata global-metadata.dat --version 1.53.5\n"
             "  hoh-protos extract --metadata global-metadata.dat "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--out output/un0/1.50.3/descriptors.pb\n"
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--out output/un0/1.53.5/descriptors.pb\n"
         ),
     )
     _add_world_version_args(p)
@@ -134,9 +136,9 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos emit --version 1.50.3\n"
-            "  hoh-protos emit --in output/un0/1.50.3/descriptors.pb "
-            "--out-dir output/un0/1.50.3/proto\n"
+            "  hoh-protos emit --version 1.53.5\n"
+            "  hoh-protos emit --in output/un0/1.53.5/descriptors.pb "
+            "--out-dir output/un0/1.53.5/proto\n"
         ),
     )
     _add_world_version_args(p)
@@ -152,6 +154,63 @@ def _add_emit_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help="Output directory for .proto files (default: output/{world}/{version}/proto)",
+    )
+
+
+def _add_emit_api_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "emit-api",
+        help="Emit API endpoints.json + synthetic gRPC service protos from IL2CPP",
+        description=(
+            "Parse RequestMapping factories and /game|/dev path literals from "
+            "Il2CppDumper output, write api/endpoints.json, and emit "
+            "proto/api/*.proto service definitions for client codegen "
+            "(e.g. thesayyn/protoc-gen-ts)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos emit-api --version 1.56.2\n"
+            "  hoh-protos emit-api "
+            "--dump-cs output/un0/1.56.2/il2cpp/dump.cs "
+            "--stringliteral output/un0/1.56.2/il2cpp/stringliteral.json "
+            "--proto-dir output/un0/1.56.2/proto "
+            "--catalog output/un0/1.56.2/api/endpoints.json\n"
+        ),
+    )
+    _add_world_version_args(p)
+    p.add_argument(
+        "--dump-cs",
+        type=Path,
+        default=None,
+        help="Il2CppDumper dump.cs path (default: output/{world}/{version}/il2cpp/dump.cs)",
+    )
+    p.add_argument(
+        "--stringliteral",
+        type=Path,
+        default=None,
+        help=(
+            "Il2CppDumper stringliteral.json path "
+            "(default: output/{world}/{version}/il2cpp/stringliteral.json)"
+        ),
+    )
+    p.add_argument(
+        "--proto-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Existing message .proto directory; api/ services are written here "
+            "(default: output/{world}/{version}/proto)"
+        ),
+    )
+    p.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        help=(
+            "Output endpoints.json path "
+            "(default: output/{world}/{version}/api/endpoints.json)"
+        ),
     )
 
 
@@ -197,8 +256,12 @@ def _add_check_deps_parser(sub: argparse._SubParsersAction) -> None:
 def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "run",
-        help="Full pipeline: XAPK → descriptors.pb + .proto files",
-        description="Extract .proto schemas from a Unity IL2CPP + Google.Protobuf XAPK.",
+        help="Full pipeline: XAPK (or WebGL wasm) → descriptors.pb + .proto files",
+        description=(
+            "Extract .proto schemas from a Unity IL2CPP + Google.Protobuf build. "
+            "Default path uses an Android XAPK; pass --from-wasm for the WebGL "
+            "zz0/beta path (game.wasm + global-metadata.dat)."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Requires Unity IL2CPP + Google.Protobuf. Run `hoh-protos setup` once first.\n\n"
@@ -207,9 +270,11 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
             "fixture default) decodes full definitions, runs wirefix, and emits "
             "GameDesign constants.\n\n"
             "Examples:\n"
-            "  hoh-protos run --version 1.50.3\n"
-            "  hoh-protos run fixtures/un0/1.50.3/game.xapk\n"
-            "  hoh-protos run --version 1.50.3 --world zz0\n"
+            "  hoh-protos run --version 1.53.5\n"
+            "  hoh-protos run fixtures/un0/1.53.5/game.xapk\n"
+            "  hoh-protos run --from-wasm --world zz0 --version 1.54.0 "
+            "--assets --unpack-assets\n"
+            "  hoh-protos run --from-wasm --world zz0 --username U --password P\n"
         ),
     )
     p.add_argument(
@@ -219,7 +284,7 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         help=(
             "Path to .xapk file (default: fixtures/{world}/{version}/game.xapk "
-            "when --version is set)"
+            "when --version is set; ignored with --from-wasm)"
         ),
     )
     p.add_argument(
@@ -234,7 +299,52 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
     )
     _add_world_version_args(
         p,
-        version_required_hint="inferred from XAPK path/filename when omitted",
+        version_required_hint=(
+            "inferred from XAPK/wasm path when omitted; required with "
+            "--from-wasm unless credentials auto-fetch the live clientVersion"
+        ),
+    )
+    p.add_argument(
+        "--from-wasm",
+        action="store_true",
+        help=(
+            "Use WebGL fixtures (game.wasm + global-metadata.dat) instead of "
+            "game.xapk; --assets reads fixtures/.../catalog.bin"
+        ),
+    )
+    p.add_argument(
+        "--username",
+        default=None,
+        help=(
+            f"Game username for auto-fetching missing WebGL fixtures with "
+            f"--from-wasm (overwritten by {game_api.ENV_USERNAME})"
+        ),
+    )
+    p.add_argument(
+        "--password",
+        default=None,
+        help=(
+            f"Game password for auto-fetching missing WebGL fixtures with "
+            f"--from-wasm (overwritten by {game_api.ENV_PASSWORD})"
+        ),
+    )
+    p.add_argument(
+        "--wasm-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build wasm URL or hash when auto-fetching "
+            "(requires --data-url; accepts full URL, Build/{hash}.wasm, or hash)"
+        ),
+    )
+    p.add_argument(
+        "--data-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build data URL or hash when auto-fetching "
+            "(requires --wasm-url; accepts full URL, Build/{hash}.data, or hash)"
+        ),
     )
     p.add_argument(
         "--work-dir",
@@ -301,6 +411,14 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help=(
+            "Also write sibling SQLite DBs for decoded gamedesign/startup/"
+            "definitions blobs ({out-dir}.db)"
+        ),
+    )
+    p.add_argument(
         "--gamedesign-constants",
         action="store_true",
         help=(
@@ -337,8 +455,8 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--assets",
         action="store_true",
         help=(
-            "Download Addressables asset bundles from the CDN using the "
-            "catalog found in the XAPK"
+            "Download Addressables asset bundles from the CDN using the catalog "
+            "in the XAPK (or fixtures/.../catalog.bin with --from-wasm)"
         ),
     )
     p.add_argument(
@@ -351,8 +469,9 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         "--unpack-assets",
         action="store_true",
         help=(
-            "Extract images from the Addressables bundles shipped inside the "
-            "XAPK into {output}/unpacked (needs the assets extra)"
+            "Extract images from Addressables bundles into {output}/unpacked "
+            "(XAPK local packs, or downloaded assets/ with --from-wasm; "
+            "needs the assets extra)"
         ),
     )
     p.add_argument(
@@ -360,6 +479,13 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         type=Path,
         default=None,
         help="Unpacked images output directory (default: {output}/unpacked)",
+    )
+    p.add_argument(
+        "--meshes",
+        action="store_true",
+        help=(
+            "With --unpack-assets, also export raw Mesh objects as Wavefront OBJ"
+        ),
     )
     p.add_argument(
         "--link-assets",
@@ -395,10 +521,10 @@ def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos gamedesign --version 1.50.3\n"
-            "  hoh-protos gamedesign --descriptors output/un0/1.50.3/descriptors.pb "
-            "--input fixtures/un0/1.50.3/gamedesign "
-            "--out-dir output/un0/1.50.3/gamedesign\n"
+            "  hoh-protos gamedesign --version 1.53.5\n"
+            "  hoh-protos gamedesign --descriptors output/un0/1.53.5/descriptors.pb "
+            "--input fixtures/un0/1.53.5/gamedesign "
+            "--out-dir output/un0/1.53.5/gamedesign\n"
         ),
     )
     _add_world_version_args(p)
@@ -423,6 +549,11 @@ def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:
             "(default: output/{world}/{version}/gamedesign)"
         ),
     )
+    p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help="Also write a sibling SQLite DB at {out-dir}.db",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -437,10 +568,10 @@ def _add_gamedesign_constants_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos gamedesign-constants --version 1.50.3\n"
+            "  hoh-protos gamedesign-constants --version 1.53.5\n"
             "  hoh-protos gamedesign-constants "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--out-dir output/un0/1.50.3/gamedesign/constants\n"
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--out-dir output/un0/1.53.5/gamedesign/constants\n"
         ),
     )
     _add_world_version_args(p)
@@ -472,9 +603,9 @@ def _add_wirefix_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos wirefix --version 1.50.3\n"
-            "  hoh-protos wirefix --descriptors output/un0/1.50.3/descriptors.pb "
-            "--input fixtures/un0/1.50.3/gamedesign\n"
+            "  hoh-protos wirefix --version 1.53.5\n"
+            "  hoh-protos wirefix --descriptors output/un0/1.53.5/descriptors.pb "
+            "--input fixtures/un0/1.53.5/gamedesign\n"
         ),
     )
     _add_world_version_args(p)
@@ -504,11 +635,12 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos definitions --version 1.50.3\n"
-            "  hoh-protos definitions --descriptors output/un0/1.50.3/descriptors.pb "
-            "--out-dir output/un0/1.50.3 "
-            "--input fixtures/un0/1.50.3/startup "
-            "--input fixtures/un0/1.50.3/gamedesign\n"
+            "  hoh-protos definitions --version 1.53.5\n"
+            "  hoh-protos definitions --descriptors output/un0/1.53.5/descriptors.pb "
+            "--out-dir output/un0/1.53.5 "
+            "--input fixtures/un0/1.53.5/gamedesign\n"
+            "  # startup is optional (player-session PII); add "
+            "--input fixtures/un0/1.53.5/startup only if present\n"
         ),
     )
     _add_world_version_args(p)
@@ -526,7 +658,8 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
         metavar="BLOB",
         help=(
             "Captured blob to decode (repeatable; default with --version: "
-            "existing startup/gamedesign/loca-compressed under fixtures/)"
+            "existing gamedesign/loca-compressed under fixtures/, plus startup "
+            "when present)"
         ),
     )
     p.add_argument(
@@ -537,6 +670,11 @@ def _add_definitions_parser(sub: argparse._SubParsersAction) -> None:
             "Output directory; a subdir named after each blob is created "
             "(default: output/{world}/{version}/)"
         ),
+    )
+    p.add_argument(
+        "--sqlite",
+        action="store_true",
+        help="Also write a sibling SQLite DB at {out-dir}/{blob-stem}.db per input",
     )
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -553,11 +691,11 @@ def _add_loca_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos loca --version 1.50.3\n"
-            "  hoh-protos loca --descriptors output/un0/1.50.3/descriptors.pb "
-            "--dump-cs output/un0/1.50.3/il2cpp/dump.cs "
-            "--input fixtures/un0/1.50.3/loca-compressed "
-            "--out-dir output/un0/1.50.3/loca\n"
+            "  hoh-protos loca --version 1.53.5\n"
+            "  hoh-protos loca --descriptors output/un0/1.53.5/descriptors.pb "
+            "--dump-cs output/un0/1.53.5/il2cpp/dump.cs "
+            "--input fixtures/un0/1.53.5/loca-compressed "
+            "--out-dir output/un0/1.53.5/loca\n"
         ),
     )
     _add_world_version_args(p)
@@ -609,8 +747,8 @@ def _add_download_xapk_parser(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  hoh-protos download-xapk --version 1.50.3\n"
-            "  hoh-protos download-xapk --version 1.50.3 --world zz0\n"
+            "  hoh-protos download-xapk --version 1.53.5\n"
+            "  hoh-protos download-xapk --version 1.53.5 --world zz0\n"
             "  hoh-protos download-xapk -o ./custom/game.xapk\n"
         ),
     )
@@ -664,9 +802,9 @@ def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
             "The CDN only keeps bundle hashes for recent builds, so a stale catalog "
             "produces mostly 404s. Use --dry-run to inspect URLs first.\n\n"
             "Examples:\n"
-            "  hoh-protos download-assets --version 1.50.3\n"
-            "  hoh-protos download-assets --xapk fixtures/un0/1.50.3/game.xapk "
-            "-o output/un0/1.50.3/assets\n"
+            "  hoh-protos download-assets --version 1.53.5\n"
+            "  hoh-protos download-assets --xapk fixtures/un0/1.53.5/game.xapk "
+            "-o output/un0/1.53.5/assets\n"
             "  hoh-protos download-assets --catalog catalog.bin -o ./assets "
             "--only hero --jobs 16\n"
         ),
@@ -766,11 +904,12 @@ def _add_download_assets_parser(sub: argparse._SubParsersAction) -> None:
 def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "unpack-assets",
-        help="Extract images from Addressables bundles and index them by name",
+        help="Extract images (and optionally meshes) from Addressables bundles",
         description=(
             "Decode Sprite and Texture2D objects out of Unity asset bundles into "
-            "PNGs, and write an index.json mapping asset names and Addressables "
-            "addresses to the extracted files."
+            "PNGs (and optionally Mesh objects into OBJ with --meshes), and write "
+            "an index.json mapping asset names and Addressables addresses to the "
+            "extracted files."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -778,10 +917,10 @@ def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
             "so --xapk needs no network and covers far more than a CDN pull.\n"
             "Requires the assets extra: pip install 'hoh-protos[assets]'\n\n"
             "Examples:\n"
-            "  hoh-protos unpack-assets --version 1.50.3 --only spriteatlas\n"
-            "  hoh-protos unpack-assets --version 1.50.3 --xapk\n"
-            "  hoh-protos unpack-assets --xapk fixtures/un0/1.50.3/game.xapk "
-            "-o output/un0/1.50.3/unpacked\n"
+            "  hoh-protos unpack-assets --version 1.53.5 --only spriteatlas\n"
+            "  hoh-protos unpack-assets --version 1.53.5 --xapk\n"
+            "  hoh-protos unpack-assets --xapk fixtures/un0/1.53.5/game.xapk "
+            "-o output/un0/1.53.5/unpacked\n"
         ),
     )
     _add_world_version_args(p)
@@ -849,6 +988,14 @@ def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--meshes",
+        action="store_true",
+        help=(
+            "Also export raw Mesh objects as Wavefront OBJ beside the PNGs "
+            "(UnityPy MeshExporter; no materials/prefab hierarchy)"
+        ),
+    )
+    p.add_argument(
         "--clean",
         action="store_true",
         help="Delete the output directory first instead of resuming",
@@ -872,14 +1019,15 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Each value resolves to one of: image (a PNG), bundle_only (an "
-            "address whose bundle holds a prefab, not art), or miss.\n\n"
+            "Each value resolves to one of: image (a PNG), mesh (an OBJ from "
+            "--meshes), bundle_only (an address whose bundle holds a prefab with "
+            "no extracted art), or miss.\n\n"
             "Examples:\n"
-            "  hoh-protos link-assets --version 1.50.3\n"
-            "  hoh-protos link-assets --index output/un0/1.50.3/unpacked/index.json \\\n"
-            "    --descriptors output/un0/1.50.3/descriptors.pb \\\n"
-            "    --definitions output/un0/1.50.3/gamedesign "
-            "-o output/un0/1.50.3/asset_links\n"
+            "  hoh-protos link-assets --version 1.53.5\n"
+            "  hoh-protos link-assets --index output/un0/1.53.5/unpacked/index.json \\\n"
+            "    --descriptors output/un0/1.53.5/descriptors.pb \\\n"
+            "    --definitions output/un0/1.53.5/gamedesign "
+            "-o output/un0/1.53.5/asset_links\n"
         ),
     )
     _add_world_version_args(p)
@@ -925,12 +1073,15 @@ def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
 def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "download-fixtures",
-        help="Download startup/gamedesign/loca fixtures from InnoGames",
+        help="Download gamedesign/loca (and optional WebGL / startup) fixtures",
         description=(
             "Log into Heroes of History, open a browser play session, and save "
-            "raw protobuf responses (startup, gamedesign, loca-compressed) plus "
-            "the matching XAPK as game.xapk under fixtures/{world}/{clientVersion}/. "
-            "Talks only to InnoGames / APKPure hosts; nothing is uploaded."
+            "raw protobuf responses under fixtures/{world}/{clientVersion}/. "
+            "Default downloads are startup, gamedesign, and loca-compressed, plus "
+            "the matching XAPK as game.xapk. Prefer --only gamedesign,loca for "
+            "contributor fixtures (startup is optional player-session PII). "
+            "For zz0/beta WebGL use --only wasm,catalog,loca (skips XAPK). "
+            "Talks only to InnoGames / APKPure / CDN hosts; nothing is uploaded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -938,7 +1089,11 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
             "(env overwrites flags). Optional HOH_WORLD / HOH_LOCALE likewise "
             "overwrite --world / --locale.\n\n"
             "Examples:\n"
-            "  hoh-protos download-fixtures --username USER --password PASS\n"
+            "  hoh-protos download-fixtures --username USER --password PASS "
+            "--only gamedesign,loca\n"
+            "  hoh-protos download-fixtures --world zz0 --only wasm,catalog,loca\n"
+            "  hoh-protos download-fixtures --world zz0 --only wasm "
+            "--wasm-url HASH.wasm --data-url HASH.data\n"
             "  hoh-protos download-fixtures --world zz0 --only gamedesign,loca\n"
             "  HOH_USERNAME=… HOH_PASSWORD=… hoh-protos download-fixtures -v\n"
         ),
@@ -978,8 +1133,10 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         metavar="LIST",
         help=(
-            "Comma-separated fixtures to download: startup, gamedesign, loca "
-            "(default: all three)"
+            "Comma-separated fixtures: startup, gamedesign, loca, wasm, catalog "
+            "(default: startup,gamedesign,loca). wasm downloads game.wasm + "
+            "game.data + global-metadata.dat; catalog downloads catalog.bin. "
+            "Including wasm or catalog skips the APKPure XAPK by default"
         ),
     )
     p.add_argument(
@@ -1000,6 +1157,24 @@ def _add_download_fixtures_parser(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Do not download game.xapk from APKPure into the fixture folder",
     )
+    p.add_argument(
+        "--wasm-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build wasm URL or hash for --only wasm "
+            "(requires --data-url; accepts full URL, Build/{hash}.wasm, or hash)"
+        ),
+    )
+    p.add_argument(
+        "--data-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "Override WebGL Build data URL or hash for --only wasm "
+            "(requires --wasm-url; accepts full URL, Build/{hash}.data, or hash)"
+        ),
+    )
     p.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -1014,9 +1189,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  hoh-protos setup\n"
             "  hoh-protos check-deps\n"
-            "  hoh-protos download-xapk --version 1.50.3\n"
-            "  hoh-protos run --version 1.50.3\n"
-            "  hoh-protos download-assets --version 1.50.3\n"
+            "  hoh-protos download-xapk --version 1.53.5\n"
+            "  hoh-protos run --version 1.53.5\n"
+            "  hoh-protos download-assets --version 1.53.5\n"
         ),
     )
     sub = parser.add_subparsers(dest="command")
@@ -1025,6 +1200,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_check_deps_parser(sub)
     _add_extract_parser(sub)
     _add_emit_parser(sub)
+    _add_emit_api_parser(sub)
     _add_run_parser(sub)
     _add_gamedesign_parser(sub)
     _add_gamedesign_constants_parser(sub)
@@ -1075,9 +1251,51 @@ def _resolve_emit_args(args: argparse.Namespace) -> str | None:
     return None
 
 
+def _resolve_emit_api_args(args: argparse.Namespace) -> str | None:
+    layout = _layout_from_args(args)
+    args.dump_cs = coalesce(args.dump_cs, layout.dump_cs if layout else None)
+    args.stringliteral = coalesce(
+        args.stringliteral, layout.stringliteral if layout else None
+    )
+    args.proto_dir = coalesce(args.proto_dir, layout.proto if layout else None)
+    args.catalog = coalesce(args.catalog, layout.api_catalog if layout else None)
+    missing = []
+    if args.dump_cs is None:
+        missing.append("--dump-cs")
+    if args.stringliteral is None:
+        missing.append("--stringliteral")
+    if args.proto_dir is None:
+        missing.append("--proto-dir")
+    if args.catalog is None:
+        missing.append("--catalog")
+    if missing:
+        return _err_need_version_or_paths(*missing)
+    return None
+
+
 def _resolve_run_args(args: argparse.Namespace) -> str | None:
     layout = _layout_from_args(args)
-    if args.xapk is None:
+    from_wasm = bool(getattr(args, "from_wasm", False))
+
+    if from_wasm:
+        # XAPK is unused; require --version unless credentials can discover it.
+        if layout is None:
+            import os
+
+            has_creds = bool(
+                (getattr(args, "username", None) and getattr(args, "password", None))
+                or (
+                    os.environ.get(game_api.ENV_USERNAME)
+                    and os.environ.get(game_api.ENV_PASSWORD)
+                )
+            )
+            if not has_creds:
+                return (
+                    "error: --from-wasm requires --version "
+                    "(or --username/--password to fetch the live clientVersion)"
+                )
+        args.xapk = None
+    elif args.xapk is None:
         if layout is None:
             return "error: provide an XAPK path or --version"
         args.xapk = layout.xapk
@@ -1098,6 +1316,9 @@ def _resolve_run_args(args: argparse.Namespace) -> str | None:
             args.loca_input = layout.loca
         if args.startup_input is None and layout.startup.is_file():
             args.startup_input = layout.startup
+        if from_wasm:
+            args.fixtures_dir = layout.fixtures
+            args.catalog = layout.catalog if layout.catalog.is_file() else None
     return None
 
 
@@ -1211,7 +1432,11 @@ def _resolve_download_xapk_args(args: argparse.Namespace) -> str | None:
 def _resolve_download_assets_args(args: argparse.Namespace) -> str | None:
     layout = _layout_from_args(args)
     if args.catalog is None and args.xapk is None and layout is not None:
-        args.xapk = layout.xapk
+        # Prefer a fixture catalog.bin (WebGL) when present; else XAPK.
+        if layout.catalog.is_file():
+            args.catalog = layout.catalog
+        else:
+            args.xapk = layout.xapk
     args.output = coalesce(args.output, layout.assets if layout else None)
     if layout is not None:
         args.unpack_out = coalesce(args.unpack_out, layout.unpacked)
@@ -1320,6 +1545,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "emit-api":
+        err = _resolve_emit_api_args(args)
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        try:
+            result = api_catalog.run_emit_api(
+                dump_cs=args.dump_cs.resolve(),
+                stringliteral=args.stringliteral.resolve(),
+                proto_dir=args.proto_dir.resolve(),
+                catalog_path=args.catalog.resolve(),
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for warning in result.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        print(
+            f"wrote {result.endpoint_count} endpoints "
+            f"({result.service_count} services, "
+            f"{result.proto_files_written} proto files) to "
+            f"{result.catalog_path} and {result.proto_api_dir}"
+        )
+        return 0
+
     if args.command == "run":
         err = _resolve_run_args(args)
         if err:
@@ -1338,6 +1588,7 @@ def main(argv: list[str] | None = None) -> int:
                 out_dir=args.out_dir.resolve(),
                 input_path=args.input.resolve(),
                 verbose=args.verbose,
+                sqlite=args.sqlite,
             )
         except (FileNotFoundError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)
@@ -1347,6 +1598,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"source: {result.source}")
         print(f"entries: {result.total_entries}")
         print(f"wrote {args.out_dir.resolve() / 'manifest.json'}")
+        if result.sqlite_path:
+            print(f"wrote {result.sqlite_path}")
         return 0
 
     if args.command == "gamedesign-constants":
@@ -1406,6 +1659,7 @@ def main(argv: list[str] | None = None) -> int:
                     out_dir=dest,
                     input_path=blob,
                     verbose=args.verbose,
+                    sqlite=args.sqlite,
                 )
             except (FileNotFoundError, ValueError) as e:
                 print(f"error: {e}", file=sys.stderr)
@@ -1413,6 +1667,8 @@ def main(argv: list[str] | None = None) -> int:
             for warning in result.warnings:
                 print(f"warning [{result.source}]: {warning}", file=sys.stderr)
             print(f"{result.source}: {result.total_entries} entries -> {dest}")
+            if result.sqlite_path:
+                print(f"  sqlite: {result.sqlite_path}")
         return 0
 
     if args.command == "loca":
@@ -1475,7 +1731,9 @@ def main(argv: list[str] | None = None) -> int:
                 locale=args.locale,
                 force=args.force,
                 verbose=args.verbose,
-                download_xapk=not args.skip_xapk,
+                download_xapk=False if args.skip_xapk else None,
+                wasm_url=getattr(args, "wasm_url", None),
+                data_url=getattr(args, "data_url", None),
             )
         except (RuntimeError, ValueError) as e:
             print(f"error: {e}", file=sys.stderr)
@@ -1559,6 +1817,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip=tuple(args.skip or ()),
                 jobs=args.jobs,
                 include_atlas_textures=args.include_atlas_textures,
+                extract_meshes=args.meshes,
                 clean=args.clean,
                 dry_run=args.dry_run,
                 verbose=args.verbose,
@@ -1605,8 +1864,11 @@ def _print_unpack_result(result: unpack.UnpackResult) -> None:
     extra = len(result.warnings) - 20
     if extra > 0:
         print(f"warning: ... and {extra} more", file=sys.stderr)
+    mesh_bit = (
+        f", {result.meshes_written} mesh(es)" if result.meshes_written else ""
+    )
     print(
-        f"unpacked: {result.images_written} image(s) from "
+        f"unpacked: {result.images_written} image(s){mesh_bit} from "
         f"{result.bundles_selected - result.bundles_skipped} bundle(s) "
         f"({result.bundles_skipped} already done, {result.bundles_failed} failed) "
         f"-> {result.out_dir}"
@@ -1623,7 +1885,8 @@ def _print_link_result(result: assetlink.LinkResult, out_dir: Path) -> None:
         f"{totals['types_scanned']} type(s)"
     )
     print(
-        f"  {totals['image']} image, {totals['bundle_only']} bundle-only, "
+        f"  {totals['image']} image, {totals.get('mesh', 0)} mesh, "
+        f"{totals['bundle_only']} bundle-only, "
         f"{totals['definition_ref']} gamedesign id, {totals['miss']} unresolved"
     )
     print(f"wrote {out_dir / assetlink.REPORT_FILENAME}")
