@@ -154,6 +154,80 @@ class _FakeClient(GameApiClient):
         raise AssertionError(f"unexpected request {method} {url}")
 
 
+def test_parse_client_version_accepts_const_let_var():
+    assert game_api.parse_client_version('const clientVersion = "1.50.3";') == "1.50.3"
+    assert game_api.parse_client_version('var clientVersion = "1.57.2";') == "1.57.2"
+    assert game_api.parse_client_version('let clientVersion = "1.57.2";') == "1.57.2"
+    assert game_api.parse_client_version("no version here") is None
+
+
+def test_is_portal_html_detects_onelps():
+    portal = (
+        '<body class="herocity"><div id="app"></div>'
+        "<script>var ONELPS_RUNTIME_CONFIG = {};</script>"
+    )
+    assert game_api.is_portal_html(portal) is True
+    assert game_api.is_portal_html('var clientVersion = "1.57.2";') is False
+
+
+def test_login_accepts_var_client_version():
+    redirect_html = (
+        'var clientVersion = "1.57.2";\n'
+        'const codeFileName = "aabb.wasm";\n'
+    )
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {
+                        "redirectUrl": (
+                            "https://zz0.heroesgame.com/browser-session/?token=t"
+                        )
+                    }
+                ).encode(),
+            ),
+            ("GET", "/browser-session/"): (200, {}, redirect_html.encode()),
+            ("POST", "/core/api/account/play"): (
+                200,
+                {},
+                json.dumps({"sessionId": "sess-zz"}).encode(),
+            ),
+        }
+    )
+    session = game_api.login(
+        client, resolve_world("zz0"), "u", "p", verbose=False
+    )
+    assert session.client_version == "1.57.2"
+    assert "codeFileName" in session.redirect_html
+
+
+def test_login_rejects_onelps_portal_html():
+    portal = (
+        '<!doctype html><body class="herocity"><div id="app"></div>'
+        "<script>var ONELPS_RUNTIME_CONFIG = {};</script>"
+    )
+    client = _FakeClient(
+        {
+            ("POST", "/api/login"): (
+                200,
+                {},
+                json.dumps(
+                    {
+                        "redirectUrl": (
+                            "https://zz0.heroesgame.com/browser-session/?token=t"
+                        )
+                    }
+                ).encode(),
+            ),
+            ("GET", "/browser-session/"): (200, {}, portal.encode()),
+        }
+    )
+    with pytest.raises(RuntimeError, match="ONELPS portal"):
+        game_api.login(client, resolve_world("zz0"), "u", "p")
+
+
 def test_maybe_gunzip_respects_content_encoding():
     raw = b"hello-fixtures"
     assert game_api._maybe_gunzip(gzip.compress(raw), "gzip") == raw

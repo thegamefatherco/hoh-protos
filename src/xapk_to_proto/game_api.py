@@ -56,7 +56,28 @@ WEBGL_FIXTURES = frozenset({FIXTURE_WASM, FIXTURE_CATALOG})
 
 DEFAULT_ONLY = (FIXTURE_STARTUP, FIXTURE_GAMEDESIGN, FIXTURE_LOCA)
 
-_CLIENT_VERSION_RE = re.compile(r'const\s+clientVersion\s*=\s*"([^"]+)"')
+# Play shell historically used ``const``; current zz0 injects ``var``.
+_CLIENT_VERSION_RE = re.compile(
+    r'(?:const|let|var)\s+clientVersion\s*=\s*"([^"]+)"'
+)
+_PORTAL_MARKERS = (
+    "ONELPS_RUNTIME_CONFIG",
+    'class="herocity"',
+    'body class="herocity"',
+)
+
+
+def is_portal_html(html: str) -> bool:
+    """True when the response is the ONELPS reg/login portal, not the play shell."""
+    if not html:
+        return False
+    return any(marker in html for marker in _PORTAL_MARKERS)
+
+
+def parse_client_version(html: str) -> str | None:
+    """Extract ``clientVersion`` from authenticated play-shell HTML."""
+    match = _CLIENT_VERSION_RE.search(html or "")
+    return match.group(1) if match else None
 
 
 # Prod still serves game APIs on heroesofhistorygame.com; beta nginx 307s that
@@ -326,10 +347,14 @@ def login(
         redirect_html = redirect_body.decode("utf-8")
     except UnicodeDecodeError as e:
         raise RuntimeError("redirect page is not UTF-8 text") from e
-    match = _CLIENT_VERSION_RE.search(redirect_html)
-    if not match:
+    if is_portal_html(redirect_html) and parse_client_version(redirect_html) is None:
+        raise RuntimeError(
+            "redirect followed to ONELPS portal instead of play shell "
+            f"({redirect_url}); session cookie exchange likely failed"
+        )
+    client_version = parse_client_version(redirect_html)
+    if not client_version:
         raise RuntimeError("clientVersion not found in redirect page")
-    client_version = match.group(1)
 
     if verbose:
         print(f"  clientVersion: {client_version}", flush=True)
