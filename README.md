@@ -231,6 +231,14 @@ Re-run `hoh-protos emit` after upgrading this package: newer emitters repair
 IL2CPP metadata quirks (`object` placeholders, mis-scoped `Struct`, nested
 enums, C# `.Types.` segments) so `protoc` and Buf accept the tree.
 
+During extract/emit, **enum value** names that match a reserved-word list
+(Python keywords plus common protobuf/JS/Go identifiers) are rewritten with a
+trailing `_` (e.g. `None` → `None_`). Wire numbers are unchanged; field and
+message names are not rewritten. Re-emit after upgrading to refresh `.proto`
+files.
+
+
+
 ### Synthetic gRPC services + TypeScript clients
 
 `hoh-protos emit-api` (also run at the end of `hoh-protos run`) builds:
