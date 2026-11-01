@@ -11,6 +11,8 @@ from pathlib import Path
 
 from google.protobuf import descriptor_pb2
 
+from xapk_to_proto.enum_keywords import rewrite_file_enum_values
+
 WELL_KNOWN: dict[str, str] = {
     "Google.Protobuf.WellKnownTypes.Timestamp": "google.protobuf.Timestamp",
     "Google.Protobuf.WellKnownTypes.Duration": "google.protobuf.Duration",
@@ -883,6 +885,8 @@ def run(
         add_deps_from_fields(pf, type_index)
     rebuilt = {name: protofile_to_fdp(pf) for name, pf in parsed.items()}
     merged = merge_fds(embedded, rebuilt)
+    for fd in merged.values():
+        rewrite_file_enum_values(fd)
 
     fds = descriptor_pb2.FileDescriptorSet()
     for name in sorted(merged.keys()):

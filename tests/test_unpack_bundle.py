@@ -77,7 +77,28 @@ def test_unpacking_a_prefab_bundle_reports_no_images_without_failing(source, tmp
 
     assert not outcome.failed
     assert outcome.records == []
+    assert outcome.mesh_records == []
 
+
+def test_unpacking_a_mesh_bundle_exports_obj_when_requested(source, tmp_path):
+    name = _first_matching(source, "vfx_ragnarlodbrok_meshes")
+
+    without = unpack.unpack_bundle(source.read(name), name, tmp_path / "images")
+    with_meshes = unpack.unpack_bundle(
+        source.read(name), name, tmp_path / "meshes", extract_meshes=True
+    )
+
+    assert not without.failed
+    assert without.mesh_records == []
+    assert not with_meshes.failed
+    assert with_meshes.mesh_records
+    assert all(r.object_type == "Mesh" for r in with_meshes.mesh_records)
+    for record in with_meshes.mesh_records:
+        path = tmp_path / "meshes" / record.path
+        assert path.is_file()
+        assert path.suffix == ".obj"
+        assert path.read_text(encoding="utf-8").startswith("g ")
+        assert record.vertex_count > 0
 
 def test_font_stub_textures_warn_empty_not_isadirectory(source, tmp_path):
     name = _first_matching(source, "inconsolata_")
