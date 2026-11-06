@@ -39,17 +39,21 @@ def test_encode_localization_request_matches_known_bytes():
 def test_resolve_world_un0_maps_to_innogames_hosts():
     world = resolve_world("un0")
     assert world.login_url == "https://www.heroesgame.com/api/login"
+    assert world.game_domain == "heroesgame.com"
+    assert world.account_origin == "https://un0.heroesgame.com"
     assert (
         world.account_play_url
-        == "https://un0.heroesofhistorygame.com/core/api/account/play"
+        == "https://un0.heroesgame.com/core/api/account/play"
     )
     assert (
         world.game_url("game/startup")
-        == "https://un1.heroesofhistorygame.com/game/startup"
+        == "https://un1.heroesgame.com/game/startup"
     )
     assert "forgeofgames.com" not in world.login_url
     assert "forgeofgames.com" not in world.account_play_url
     assert "forgeofgames.com" not in world.game_url("game/gamedesign")
+    assert "heroesofhistorygame.com" not in world.account_play_url
+    assert "heroesofhistorygame.com" not in world.game_url("game/gamedesign")
 
 
 def test_resolve_world_aliases():
@@ -58,7 +62,7 @@ def test_resolve_world_aliases():
     assert resolve_world("zz1").account_host == "zz0"
 
 
-def test_resolve_world_zz0_uses_beta_game_domain():
+def test_resolve_world_zz0_uses_game_domain():
     world = resolve_world("zz0")
     assert world.game_domain == "heroesgame.com"
     assert world.account_origin == "https://zz0.heroesgame.com"

@@ -295,6 +295,7 @@ default.
 | `hoh-protos GAME.xapk` | Shorthand for `run` |
 | `hoh-protos download-assets --version V` | Download Addressables bundles → `output/.../assets` |
 | `hoh-protos unpack-assets --version V` | Extract images → `output/.../unpacked` (default source: `.../assets`) |
+| `hoh-protos preview-assets --version V` | Rebuild HTML image browser → `output/.../unpacked/preview` |
 | `hoh-protos link-assets --version V` | Resolve `asset_id`-style fields → `output/.../asset_links` |
 | `hoh-protos extract --metadata … --version V` | Build descriptors (`--metadata` still required) |
 | `hoh-protos emit --version V` | Render `.proto` files from `descriptors.pb` |
@@ -352,10 +353,10 @@ HOH_USERNAME=… HOH_PASSWORD=… uv run hoh-protos download-fixtures -v
 Credentials: `--username` / `--password`, or env `HOH_USERNAME` / `HOH_PASSWORD`
 (**env overwrites flags** when set). Optional `HOH_WORLD` / `HOH_LOCALE`
 likewise overwrite `--world` / `--locale`. Default world is `un0` (production);
-`zz0` / `zz1` target beta (`beta.heroesgame.com` login; game hosts on
-`*.heroesgame.com`). Prod (`un0`/`un1`) still uses `*.heroesofhistorygame.com`
-for account/play and game APIs. Existing files are left alone unless you pass
-`--force`.
+`zz0` / `zz1` target beta (`beta.heroesgame.com` login). Both worlds use game
+hosts on `*.heroesgame.com` (the old `*.heroesofhistorygame.com` apex 307s
+there; urllib will not follow 307 on POST). Existing files are left alone
+unless you pass `--force`.
 
 `--only` tokens:
 
@@ -506,6 +507,10 @@ Output:
 unpacked/
 ├── extracted/<address>/<asset name>.png
 ├── extracted/<address>/<mesh name>.obj   # only with --meshes
+├── preview/                              # HTML assets browser (images only)
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
 └── index.json
 ```
 
@@ -517,6 +522,15 @@ materials or prefab hierarchy — UnityPy only supports OBJ). Re-running resumes
 from `index.json` rather than redoing finished bundles; `--clean` starts over.
 The first `--meshes` pass after an image-only unpack re-scans bundles that were
 previously recorded as empty (they were never mesh-scanned).
+
+Every successful unpack also regenerates `preview/`: open
+`unpacked/preview/index.html` in a browser (`file://` works) to search folders
+and names, lazy-load thumbnails, open a lightbox, and copy index-relative paths
+(`extracted/.../name.png`). Rebuild without re-unpacking:
+
+```bash
+uv run hoh-protos preview-assets --version 1.50.3
+```
 
 `index.json` carries lookup tables for both images and meshes:
 

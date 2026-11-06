@@ -847,4 +847,9 @@ def run_unpack(
     )
     if not dry_run:
         write_index(result)
+        # Import locally to keep UnityPy-heavy unpack importable without pulling
+        # preview templates into every consumer that only needs ImageRecord.
+        from xapk_to_proto import preview
+
+        preview.write_preview(out_dir, result.records)
     return result

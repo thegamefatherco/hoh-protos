@@ -1,8 +1,10 @@
 """Download HoH server fixtures (startup / gamedesign / loca) from InnoGames.
 
 Also supports WebGL Build artifacts (``wasm`` / ``catalog``) via the CDN after
-the same login. Talks only to ``*.heroesgame.com``, ``*.heroesofhistorygame.com``,
-APKPure (optional XAPK), and the InnoGames CDN. Writes local files only.
+the same login. Talks only to ``*.heroesgame.com``, APKPure (optional XAPK),
+and the InnoGames CDN. Writes local files only. The old
+``*.heroesofhistorygame.com`` apex 307s to ``*.heroesgame.com``; urllib will
+not follow 307 on POST, so URLs are built against ``heroesgame.com`` directly.
 """
 
 from __future__ import annotations
@@ -80,10 +82,9 @@ def parse_client_version(html: str) -> str | None:
     return match.group(1) if match else None
 
 
-# Prod still serves game APIs on heroesofhistorygame.com; beta nginx 307s that
-# apex to heroesgame.com, and urllib will not follow 307 on POST.
-DOMAIN_PROD = "heroesofhistorygame.com"
-DOMAIN_BETA = "heroesgame.com"
+# Both prod (un0) and beta (zz0) game hosts live on heroesgame.com. The old
+# heroesofhistorygame.com apex 307s here; urllib will not follow 307 on POST.
+DOMAIN_GAME = "heroesgame.com"
 
 
 @dataclass(frozen=True)
@@ -116,10 +117,10 @@ class WorldEndpoints:
 # Fixture/CI keys (un0) and FoG-style aliases (un1) share the same hosts.
 # Tuple: (sign_in, account_host, api_host, game_domain)
 _WORLD_TABLE: dict[str, tuple[str, str, str, str]] = {
-    "un0": ("www", "un0", "un1", DOMAIN_PROD),
-    "un1": ("www", "un0", "un1", DOMAIN_PROD),
-    "zz0": ("beta", "zz0", "zz1", DOMAIN_BETA),
-    "zz1": ("beta", "zz0", "zz1", DOMAIN_BETA),
+    "un0": ("www", "un0", "un1", DOMAIN_GAME),
+    "un1": ("www", "un0", "un1", DOMAIN_GAME),
+    "zz0": ("beta", "zz0", "zz1", DOMAIN_GAME),
+    "zz1": ("beta", "zz0", "zz1", DOMAIN_GAME),
 }
 
 KNOWN_WORLDS = tuple(sorted(_WORLD_TABLE))

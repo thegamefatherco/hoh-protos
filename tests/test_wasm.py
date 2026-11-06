@@ -141,9 +141,9 @@ def test_streaming_assets_catalog_url():
     assert wasm.streaming_assets_catalog_url("zz0", "heroesgame.com") == (
         "https://zz0.heroesgame.com/StreamingAssets/aa/catalog.bin"
     )
-    assert wasm.streaming_assets_catalog_url(
-        "un0", "heroesofhistorygame.com"
-    ) == ("https://un0.heroesofhistorygame.com/StreamingAssets/aa/catalog.bin")
+    assert wasm.streaming_assets_catalog_url("un0", "heroesgame.com") == (
+        "https://un0.heroesgame.com/StreamingAssets/aa/catalog.bin"
+    )
 
 
 def test_resolve_build_url_overrides_short_circuit():

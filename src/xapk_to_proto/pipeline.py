@@ -421,6 +421,11 @@ def _run_post_emit_steps(
             f"({unpack_result.bundles_failed} failed) -> {unpack_out}",
             flush=True,
         )
+        print(
+            f"  preview: {unpack_result.images_written} image(s) -> "
+            f"{unpack_out / 'preview'}",
+            flush=True,
+        )
 
     if getattr(args, "link_assets", False):
         link_out = (

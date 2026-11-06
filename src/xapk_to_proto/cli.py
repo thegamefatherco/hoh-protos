@@ -18,6 +18,7 @@ from xapk_to_proto import (
     game_api,
     gamedesign_constants,
     loca,
+    preview,
     unpack,
     wirefix,
 )
@@ -41,6 +42,7 @@ _SUBCOMMANDS = frozenset(
         "download-fixtures",
         "download-assets",
         "unpack-assets",
+        "preview-assets",
         "link-assets",
     }
 )
@@ -1008,6 +1010,34 @@ def _add_unpack_assets_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("-v", "--verbose", action="store_true")
 
 
+def _add_preview_assets_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "preview-assets",
+        help="Build an HTML browser for unpacked images",
+        description=(
+            "Regenerate unpacked/preview/ from an existing unpack index.json. "
+            "The page searches and previews extracted PNGs and exposes copyable "
+            "paths; open preview/index.html in a browser (file:// works)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  hoh-protos preview-assets --version 1.53.5\n"
+            "  hoh-protos preview-assets --index output/un0/1.53.5/unpacked/index.json\n"
+        ),
+    )
+    _add_world_version_args(p)
+    p.add_argument(
+        "--index",
+        type=Path,
+        default=None,
+        help=(
+            "index.json written by unpack-assets (or its directory; "
+            "default: output/{world}/{version}/unpacked)"
+        ),
+    )
+
+
 def _add_link_assets_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "link-assets",
@@ -1211,6 +1241,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_download_fixtures_parser(sub)
     _add_download_assets_parser(sub)
     _add_unpack_assets_parser(sub)
+    _add_preview_assets_parser(sub)
     _add_link_assets_parser(sub)
 
     return parser
@@ -1460,6 +1491,14 @@ def _resolve_unpack_assets_args(args: argparse.Namespace) -> str | None:
         return _err_need_version_or_paths("--xapk", "--bundles")
     if args.output is None:
         return _err_need_version_or_paths("--output")
+    return None
+
+
+def _resolve_preview_assets_args(args: argparse.Namespace) -> str | None:
+    layout = _layout_from_args(args)
+    args.index = coalesce(args.index, layout.unpacked if layout else None)
+    if args.index is None:
+        return _err_need_version_or_paths("--index")
     return None
 
 
@@ -1835,6 +1874,21 @@ def main(argv: list[str] | None = None) -> int:
         _print_unpack_result(unpack_result)
         return 0
 
+    if args.command == "preview-assets":
+        err = _resolve_preview_assets_args(args)
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        try:
+            preview_dir, image_count = preview.write_preview_from_index(
+                args.index.resolve()
+            )
+        except (FileNotFoundError, ValueError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"preview: {image_count} image(s) -> {preview_dir}")
+        return 0
+
     if args.command == "link-assets":
         err = _resolve_link_assets_args(args)
         if err:
@@ -1872,6 +1926,10 @@ def _print_unpack_result(result: unpack.UnpackResult) -> None:
         f"{result.bundles_selected - result.bundles_skipped} bundle(s) "
         f"({result.bundles_skipped} already done, {result.bundles_failed} failed) "
         f"-> {result.out_dir}"
+    )
+    print(
+        f"preview: {result.images_written} image(s) -> "
+        f"{result.out_dir / 'preview'}"
     )
 
 
