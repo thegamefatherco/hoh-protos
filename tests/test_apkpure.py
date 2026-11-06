@@ -112,7 +112,7 @@ def test_download_xapk_invokes_apkeep_and_renames(tmp_path, monkeypatch, capsys)
     cmd = captured["cmd"]
     assert cmd[0] == "/opt/apkeep"
     assert cmd[1:5] == ["-a", f"{DEFAULT_PACKAGE}@1.50.3", "-d", "apk-pure"]
-    assert cmd[5:7] == ["-o", f"arch={DEFAULT_ABI}"]
+    assert cmd[5:7] == ["-o", f"acknowledge_dangers=true,arch={DEFAULT_ABI}"]
 
     out = capsys.readouterr().out
     assert f"downloading {DEFAULT_PACKAGE}@1.50.3 -> {dest}" in out

@@ -12,6 +12,7 @@ from xapk_to_proto.assetlink import (
     STATUS_BUNDLE_ONLY,
     STATUS_DEFINITION_REF,
     STATUS_IMAGE,
+    STATUS_MESH,
     STATUS_MISS,
     AssetIndex,
     asset_fields_from_descriptors,
@@ -110,6 +111,11 @@ def _index() -> AssetIndex:
                 "bundle": "hero_backdrop_x.bundle",
                 "images": ["extracted/hero_backdrop/bg.png"],
             },
+            "vfx_ragnar_meshes": {
+                "bundle": "vfx_ragnar_meshes_x.bundle",
+                "images": [],
+                "meshes": ["extracted/vfx_ragnar_meshes/Stomp.obj"],
+            },
         },
         source="test-index",
     )
@@ -151,6 +157,28 @@ def test_resolve_reports_prefab_addresses_as_bundle_only():
     assert resolution.status == STATUS_BUNDLE_ONLY
     assert resolution.bundle == "unit_boudicca_x.bundle"
     assert resolution.image is None
+    assert resolution.mesh is None
+
+
+def test_resolve_reports_mesh_only_addresses_as_mesh():
+    resolution = _index().resolve("vfx_ragnar_meshes")
+    assert resolution.status == STATUS_MESH
+    assert resolution.mesh == "extracted/vfx_ragnar_meshes/Stomp.obj"
+    assert resolution.image is None
+    assert resolution.bundle == "vfx_ragnar_meshes_x.bundle"
+
+
+def test_resolve_prefers_bundle_images_over_meshes():
+    index = _index()
+    index.by_bundle_prefix["both"] = {
+        "bundle": "both_x.bundle",
+        "images": ["extracted/both/a.png"],
+        "meshes": ["extracted/both/a.obj"],
+    }
+    resolution = index.resolve("both")
+    assert resolution.status == STATUS_IMAGE
+    assert resolution.image == "extracted/both/a.png"
+    assert resolution.mesh is None
 
 
 def test_resolve_uses_bundle_images_when_the_address_owns_art():

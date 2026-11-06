@@ -8,9 +8,11 @@ different things:
   has run, which is why these fields look unresolvable against a raw catalog.
 * ``Unit_QueenBoudicca`` is an **Addressables address** whose bundle holds a
   prefab, not an image. It resolves to a bundle and legitimately has no PNG.
+  When ``unpack --meshes`` has exported geometry from that bundle, the same
+  address resolves as ``mesh`` instead.
 
-The resolver reports those outcomes separately (``image`` vs ``bundle_only``)
-rather than collapsing the second into a failure.
+The resolver reports those outcomes separately (``image`` / ``mesh`` /
+``bundle_only``) rather than collapsing non-image hits into a failure.
 
 Which fields to inspect is derived from the descriptor set instead of a fixed
 list, so new builds pick up new fields automatically. This module deliberately
@@ -35,11 +37,18 @@ REPORT_FILENAME = "report.json"
 INDEX_FILENAME = "index.json"
 
 STATUS_IMAGE = "image"
+STATUS_MESH = "mesh"
 STATUS_BUNDLE_ONLY = "bundle_only"
 STATUS_DEFINITION_REF = "definition_ref"
 STATUS_MISS = "miss"
 
-STATUSES = (STATUS_IMAGE, STATUS_BUNDLE_ONLY, STATUS_DEFINITION_REF, STATUS_MISS)
+STATUSES = (
+    STATUS_IMAGE,
+    STATUS_MESH,
+    STATUS_BUNDLE_ONLY,
+    STATUS_DEFINITION_REF,
+    STATUS_MISS,
+)
 
 MAX_SAMPLE_MISSES = 10
 
@@ -77,12 +86,14 @@ class Resolution:
     value: str
     status: str
     image: str | None = None
+    mesh: str | None = None
     bundle: str | None = None
 
 
 @dataclass
 class FieldStats:
     image: int = 0
+    mesh: int = 0
     bundle_only: int = 0
     definition_ref: int = 0
     miss: int = 0
@@ -90,7 +101,13 @@ class FieldStats:
 
     @property
     def total(self) -> int:
-        return self.image + self.bundle_only + self.definition_ref + self.miss
+        return (
+            self.image
+            + self.mesh
+            + self.bundle_only
+            + self.definition_ref
+            + self.miss
+        )
 
 
 @dataclass
@@ -144,10 +161,24 @@ class AssetIndex:
         entry = self.by_bundle_prefix.get(key)
         if entry is not None:
             bundle_images = entry.get("images") or []
+            bundle_meshes = entry.get("meshes") or []
+            if bundle_images:
+                return Resolution(
+                    value=value,
+                    status=STATUS_IMAGE,
+                    image=bundle_images[0],
+                    bundle=entry.get("bundle"),
+                )
+            if bundle_meshes:
+                return Resolution(
+                    value=value,
+                    status=STATUS_MESH,
+                    mesh=bundle_meshes[0],
+                    bundle=entry.get("bundle"),
+                )
             return Resolution(
                 value=value,
-                status=STATUS_IMAGE if bundle_images else STATUS_BUNDLE_ONLY,
-                image=bundle_images[0] if bundle_images else None,
+                status=STATUS_BUNDLE_ONLY,
                 bundle=entry.get("bundle"),
             )
         if _GAMEDESIGN_ID_RE.match(value.strip()):
@@ -374,6 +405,7 @@ def _link_records(
                         "value": res.value,
                         "status": res.status,
                         "image": res.image,
+                        "mesh": res.mesh,
                         "bundle": res.bundle,
                     }
                     for path, res in sorted(found.items())
@@ -446,6 +478,11 @@ def run_link_export(
 
 __all__ = [
     "STATUSES",
+    "STATUS_BUNDLE_ONLY",
+    "STATUS_DEFINITION_REF",
+    "STATUS_IMAGE",
+    "STATUS_MESH",
+    "STATUS_MISS",
     "AssetIndex",
     "LinkResult",
     "Resolution",

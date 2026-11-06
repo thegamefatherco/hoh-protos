@@ -99,6 +99,10 @@ def test_version_layout_paths(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     layout = version_layout("1.50.3", world="un0")
     assert layout.xapk == (tmp_path / "fixtures" / "un0" / "1.50.3" / "game.xapk").resolve()
+    assert layout.wasm == (tmp_path / "fixtures" / "un0" / "1.50.3" / "game.wasm").resolve()
+    assert layout.catalog == (
+        tmp_path / "fixtures" / "un0" / "1.50.3" / "catalog.bin"
+    ).resolve()
     assert layout.assets == (tmp_path / "output" / "un0" / "1.50.3" / "assets").resolve()
     assert layout.unpacked == (
         tmp_path / "output" / "un0" / "1.50.3" / "unpacked"
@@ -109,6 +113,25 @@ def test_version_layout_paths(tmp_path: Path, monkeypatch):
     assert layout.constants == (
         tmp_path / "output" / "un0" / "1.50.3" / "gamedesign" / "constants"
     ).resolve()
+
+
+def test_version_layout_catalog_fallback_timestamped(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fixtures = tmp_path / "fixtures" / "zz0" / "1.54.0"
+    fixtures.mkdir(parents=True)
+    stamped = fixtures / "catalog_2026.09.14.13.40.12.bin"
+    stamped.write_bytes(b"c")
+    layout = version_layout("1.54.0", world="zz0")
+    assert layout.catalog == stamped.resolve()
+
+
+def test_infer_from_wasm_path(tmp_path: Path):
+    wasm = tmp_path / "fixtures" / "zz0" / "1.54.0" / "game.wasm"
+    wasm.parent.mkdir(parents=True)
+    wasm.write_bytes(b"w")
+    world, version = infer_world_version_from_path(wasm)
+    assert world == "zz0"
+    assert version == "1.54.0"
 
 
 def test_existing_fixture_blobs(tmp_path: Path, monkeypatch):

@@ -73,7 +73,7 @@ def _run_apkeep(
         "-d",
         "apk-pure",
         "-o",
-        f"arch={abi}",
+        f"acknowledge_dangers=true,arch={abi}",
         str(outdir),
     ]
     if verbose:

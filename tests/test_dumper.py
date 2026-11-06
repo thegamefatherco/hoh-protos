@@ -54,6 +54,17 @@ def test_dump_size_stable_terminates_after_stable_period():
     assert since == 97.0
 
 
+def test_failure_message_wasm_auto_scan_hint():
+    from xapk_to_proto.dumper import _failure_message
+
+    msg = _failure_message(
+        "ERROR: Can't use auto mode to detect IL2CPP\nCodeRegistration missing",
+        binary=Path("game.wasm"),
+    )
+    assert "WebGL/WASM" in msg
+    assert "WebAssembly" in msg or "WASM" in msg
+
+
 def test_dump_size_stable_sequence_waits_for_plateau():
     """Simulate growing then flat sizes; terminate only after stable_seconds."""
     last = -1

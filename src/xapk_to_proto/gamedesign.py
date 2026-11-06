@@ -1,4 +1,9 @@
-"""Discover, decode, and export hero-related GameDesign protobuf data."""
+"""Discover, decode, and export GameDesign protobuf data.
+
+The CLI ``gamedesign`` / ``definitions`` path exports all message types.
+Legacy helpers in this module still support hero-filtered exports under
+``heroes/``.
+"""
 
 from __future__ import annotations
 

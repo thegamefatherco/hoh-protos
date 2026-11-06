@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from google.protobuf import descriptor_pb2
 
+from xapk_to_proto.enum_keywords import rewrite_file_enum_values
+
 LEGACY_PACKAGE_OBJECT = ".InnoGames.Generated.Protobuf.object"
 LEGACY_PACKAGE_STRUCT = ".InnoGames.Generated.Protobuf.Struct"
 PACKAGE_OBJECT = ".object"
@@ -461,6 +463,8 @@ def repair_file_descriptor(
 
     for msg in fd.message_type:
         clear_invalid_proto3_optional(msg)
+
+    rewrite_file_enum_values(fd)
 
     fd.ClearField("dependency")
     for dep in sorted(deps):

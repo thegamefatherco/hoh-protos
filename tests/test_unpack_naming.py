@@ -8,6 +8,7 @@ from pathlib import Path
 from xapk_to_proto import unpack
 from xapk_to_proto.unpack import (
     ImageRecord,
+    MeshRecord,
     UnpackResult,
     assign_filenames,
     build_index,
@@ -148,7 +149,90 @@ def test_build_index_records_imageless_bundles_so_addresses_still_resolve():
     assert index["by_bundle_prefix"]["unit_boudicca"] == {
         "bundle": bundle,
         "images": [],
+        "meshes": [],
     }
+
+
+def test_build_index_places_obj_under_meshes_not_images():
+    bundle = "vfx_meshes_0123456789abcdef_assets_all_" + "e" * 32 + ".bundle"
+    mesh = MeshRecord(
+        bundle=bundle,
+        address_prefix="vfx_meshes",
+        object_type="Mesh",
+        name="StompForm",
+        path="extracted/vfx_meshes/StompForm.obj",
+        vertex_count=12,
+    )
+    index = build_index(_result([], mesh_records=[mesh], meshes_written=1))
+    assert index["by_name"] == {}
+    assert index["by_mesh_name"]["stompform"] == ["extracted/vfx_meshes/StompForm.obj"]
+    assert index["by_bundle_prefix"]["vfx_meshes"] == {
+        "bundle": bundle,
+        "images": [],
+        "meshes": ["extracted/vfx_meshes/StompForm.obj"],
+    }
+    assert index["meshes"] == 1
+    assert index["schema_version"] == unpack.INDEX_SCHEMA_VERSION
+
+
+def test_load_previous_state_requeues_legacy_empty_bundles_when_meshes_requested(
+    tmp_path,
+):
+    bundle = "unit_boudicca_1725977d7e684513_assets_all_" + "d" * 32 + ".bundle"
+    # Legacy image-only index: empty prefab marked done, no mesh fields.
+    legacy = {
+        "source": "test",
+        "unity_version": "6000.0.74f1",
+        "bundles_total": 1,
+        "bundles_selected": 1,
+        "bundles_skipped": 0,
+        "bundles_failed": 0,
+        "images": 0,
+        "duplicate_names": 0,
+        "by_name": {},
+        "by_bundle_prefix": {
+            "unit_boudicca": {"bundle": bundle, "images": []},
+        },
+        "records": [],
+        "empty_bundles": [bundle],
+        "warnings": [],
+    }
+    (tmp_path / unpack.INDEX_FILENAME).write_text(
+        json.dumps(legacy), encoding="utf-8"
+    )
+
+    previous = unpack._load_previous_state(tmp_path)
+
+    assert bundle in previous
+    assert previous[bundle].image_scanned
+    assert not previous[bundle].mesh_scanned
+    assert unpack._bundle_is_done(previous[bundle], extract_meshes=False)
+    assert not unpack._bundle_is_done(previous[bundle], extract_meshes=True)
+
+
+def test_load_previous_state_marks_mesh_only_bundles_image_complete(tmp_path):
+    bundle = "vfx_meshes_0123456789abcdef_assets_all_" + "e" * 32 + ".bundle"
+    mesh = MeshRecord(
+        bundle=bundle,
+        address_prefix="vfx_meshes",
+        object_type="Mesh",
+        name="StompForm",
+        path="extracted/vfx_meshes/StompForm.obj",
+        vertex_count=12,
+    )
+    result = _result([], mesh_records=[mesh], meshes_written=1, out_dir=tmp_path)
+    (tmp_path / "extracted" / "vfx_meshes").mkdir(parents=True)
+    (tmp_path / mesh.path).write_text("g StompForm\n", encoding="utf-8")
+    (tmp_path / unpack.INDEX_FILENAME).write_text(
+        json.dumps(build_index(result)), encoding="utf-8"
+    )
+
+    previous = unpack._load_previous_state(tmp_path)
+
+    assert previous[bundle].mesh_scanned
+    assert previous[bundle].image_scanned
+    assert unpack._bundle_is_done(previous[bundle], extract_meshes=True)
+    assert unpack._bundle_is_done(previous[bundle], extract_meshes=False)
 
 
 def test_load_previous_records_resumes_only_bundles_whose_files_survive(tmp_path):
