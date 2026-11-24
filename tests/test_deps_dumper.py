@@ -13,8 +13,8 @@ from xapk_to_proto.dumper import _failure_message, _filter_dumper_output
 def test_dumper_url_defaults():
     url = deps.dumper_url()
     assert url == (
-        "https://github.com/Windows81/Il2CppDumper/releases/download/"
-        "v20260329T093452Z/Il2CppDumper-CLI-20260329T093452Z_0507132.zip"
+        "https://github.com/thegamefatherco/Il2CppDumper/releases/download/"
+        "v20261112T094229Z/Il2CppDumper-CLI-20261112T094229Z_f43a361.zip"
     )
 
 
@@ -108,6 +108,62 @@ def test_install_dumper_extracts_from_zip(tmp_path: Path, monkeypatch):
     dll = deps.install_dumper()
     assert dll == cache / "Il2CppDumper.dll"
     assert dll.is_file()
+    assert (cache / deps.DUMPER_SOURCE_MARKER).read_text().strip() == deps.dumper_url()
+    assert deps.cached_dumper_is_current()
+
+
+def _fake_dumper_zip(calls: list[str]):
+    def fake_urlretrieve(url: str, filename: str | Path) -> None:
+        calls.append(url)
+        with zipfile.ZipFile(Path(filename), "w") as zf:
+            zf.writestr("Il2CppDumper.dll", b"MZ-new")
+
+    return fake_urlretrieve
+
+
+def test_install_dumper_skips_current_cache(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "Il2CppDumper.dll").write_bytes(b"MZ-cached")
+    (cache / deps.DUMPER_SOURCE_MARKER).write_text(deps.dumper_url() + "\n")
+    monkeypatch.setattr(deps, "dumper_cache_dir", lambda: cache)
+    calls: list[str] = []
+    monkeypatch.setattr(deps, "urlretrieve", _fake_dumper_zip(calls))
+
+    dll = deps.install_dumper()
+    assert calls == []
+    assert dll.read_bytes() == b"MZ-cached"
+
+
+def test_install_dumper_replaces_stale_cache(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "Il2CppDumper.dll").write_bytes(b"MZ-old")
+    monkeypatch.setattr(deps, "dumper_cache_dir", lambda: cache)
+    calls: list[str] = []
+    monkeypatch.setattr(deps, "urlretrieve", _fake_dumper_zip(calls))
+
+    assert not deps.cached_dumper_is_current()
+    dll = deps.install_dumper()
+    assert calls == [deps.dumper_url()]
+    assert dll.read_bytes() == b"MZ-new"
+    assert deps.cached_dumper_is_current()
+
+
+def test_resolve_dumper_dll_warns_on_stale_cache(tmp_path: Path, monkeypatch, capsys):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "Il2CppDumper.dll").write_bytes(b"MZ")
+    (cache / deps.DUMPER_SOURCE_MARKER).write_text("https://example.test/old.zip\n")
+    monkeypatch.delenv("XAPK_TO_PROTO_DUMPER", raising=False)
+    monkeypatch.setattr(deps, "dumper_cache_dir", lambda: cache)
+
+    assert deps.resolve_dumper_dll() == cache / "Il2CppDumper.dll"
+    assert "hoh-protos setup" in capsys.readouterr().err
+
+    (cache / deps.DUMPER_SOURCE_MARKER).write_text(deps.dumper_url() + "\n")
+    deps.resolve_dumper_dll()
+    assert capsys.readouterr().err == ""
 
 
 def test_filter_dumper_output_drops_readkey_noise():

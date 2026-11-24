@@ -12,6 +12,7 @@ from google.protobuf import descriptor_pb2
 from xapk_to_proto import (
     api_catalog,
     assetlink,
+    assetripper,
     assets,
     definitions,
     dumper,
@@ -465,6 +466,34 @@ def _run_post_emit_steps(
                 flush=True,
             )
 
+    if getattr(args, "assetripper_input", False):
+        stage_out = (
+            getattr(args, "assetripper_input_out", None) or output / "assetripper"
+        ).resolve()
+        downloaded = assets_out or (output / "assets")
+        if downloaded.is_dir() or xapk_root is None:
+            bundle_dir = downloaded
+            link_bundles = True
+        else:
+            bundle_dir = unpack.find_local_bundle_dir(xapk_root)
+            # The XAPK work dir is deleted after the run unless --keep-work.
+            link_bundles = bool(getattr(args, "keep_work", False))
+        log("[+] Staging AssetRipper input...")
+        stage = assetripper.stage_input(
+            il2cpp_dir=output / "il2cpp",
+            bundles_dir=bundle_dir,
+            out_dir=stage_out,
+            link_bundles=link_bundles,
+        )
+        mode = "linked" if stage.linked else "copied"
+        print(
+            f"  assetripper: {stage.assemblies} assemblies, {stage.bundles} "
+            f"bundles ({mode}) -> {stage.out_dir} "
+            f"(drag {assetripper.MANAGED_DIRNAME}/ and "
+            f"{assetripper.BUNDLES_DIRNAME}/ into AssetRipper together)",
+            flush=True,
+        )
+
 
 def _run_from_wasm(args: Namespace) -> int:
     world = resolve_world(getattr(args, "world", None))
@@ -592,6 +621,7 @@ def _run_from_wasm(args: Namespace) -> int:
             print("dump.cs missing after Il2CppDumper", file=sys.stderr)
             return 1
         dumper.validate_dump(dump_cs)
+        dumper.warn_if_dummy_dll_missing(il2cpp_out)
 
         log("[3/4] Extracting protobuf descriptors...")
         stats = extract.run(metadata, dump_cs, descriptors)
@@ -705,6 +735,7 @@ def _run_from_xapk(args: Namespace) -> int:
             print("dump.cs missing after Il2CppDumper", file=sys.stderr)
             return 1
         dumper.validate_dump(dump_cs)
+        dumper.warn_if_dummy_dll_missing(il2cpp_out)
 
         log("[4/5] Extracting protobuf descriptors...")
         stats = extract.run(metadata, dump_cs, descriptors)

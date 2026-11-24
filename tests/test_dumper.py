@@ -1,4 +1,4 @@
-"""Tests for Il2CppDumper early-kill stability and dump validation."""
+"""Tests for Il2CppDumper DummyDll soft-fail and dump validation."""
 
 from __future__ import annotations
 
@@ -6,52 +6,104 @@ from pathlib import Path
 
 import pytest
 
-from xapk_to_proto.dumper import dump_size_stable, validate_dump
+from xapk_to_proto.dumper import (
+    classify_dumper_result,
+    is_known_dummy_dll_abort,
+    list_dummy_dlls,
+    validate_dump,
+    warn_if_dummy_dll_missing,
+)
 
 
-def test_dump_size_stable_below_min_resets():
-    should_stop, last, since = dump_size_stable(
-        500_000, -1, None, now=100.0, min_bytes=1_000_000, stable_seconds=3.0
+def test_list_dummy_dlls_missing_dir(tmp_path: Path):
+    assert list_dummy_dlls(tmp_path) == []
+
+
+def test_list_dummy_dlls_empty_dir(tmp_path: Path):
+    (tmp_path / "DummyDll").mkdir()
+    assert list_dummy_dlls(tmp_path) == []
+
+
+def test_list_dummy_dlls_finds_dlls(tmp_path: Path):
+    folder = tmp_path / "DummyDll"
+    folder.mkdir()
+    (folder / "Assembly-CSharp.dll").write_bytes(b"MZ")
+    (folder / "readme.txt").write_text("ignore", encoding="utf-8")
+    dlls = list_dummy_dlls(tmp_path)
+    assert [p.name for p in dlls] == ["Assembly-CSharp.dll"]
+
+
+def test_is_known_dummy_dll_abort_detects_compressed_integer():
+    assert is_known_dummy_dll_abort(
+        "Generate dummy dll...\nInvalid compressed integer format\n"
     )
-    assert should_stop is False
-    assert last == 500_000
-    assert since is None
+    assert not is_known_dummy_dll_abort("Generate dummy dll...\nDone!\n")
 
 
-def test_dump_size_stable_growing_resets_timer():
-    should_stop, last, since = dump_size_stable(
-        2_000_000, 1_500_000, 90.0, now=100.0, min_bytes=1_000_000, stable_seconds=3.0
+def test_classify_ok_with_dummy_dlls(tmp_path: Path):
+    dump_cs = tmp_path / "dump.cs"
+    dump_cs.write_text("// ok\n", encoding="utf-8")
+    folder = tmp_path / "DummyDll"
+    folder.mkdir()
+    (folder / "Assembly-CSharp.dll").write_bytes(b"MZ")
+    assert (
+        classify_dumper_result(dump_cs=dump_cs, out_dir=tmp_path, combined="")
+        == "ok"
     )
-    assert should_stop is False
-    assert last == 2_000_000
-    assert since == 100.0
 
 
-def test_dump_size_stable_first_observation_above_min():
-    should_stop, last, since = dump_size_stable(
-        2_000_000, -1, None, now=100.0, min_bytes=1_000_000, stable_seconds=3.0
+def test_classify_soft_skips_compressed_integer_abort(tmp_path: Path):
+    dump_cs = tmp_path / "dump.cs"
+    dump_cs.write_text("// ok\n", encoding="utf-8")
+    (tmp_path / "DummyDll").mkdir()
+    combined = (
+        "Dumping...\nDone!\nGenerate struct...\nDone!\n"
+        "Generate dummy dll...\nInvalid compressed integer format\n"
     )
-    assert should_stop is False
-    assert last == 2_000_000
-    assert since == 100.0
-
-
-def test_dump_size_stable_not_yet_elapsed():
-    should_stop, last, since = dump_size_stable(
-        2_000_000, 2_000_000, 98.0, now=100.0, min_bytes=1_000_000, stable_seconds=3.0
+    assert (
+        classify_dumper_result(
+            dump_cs=dump_cs, out_dir=tmp_path, combined=combined
+        )
+        == "ok_dummy_dll_skipped"
     )
-    assert should_stop is False
-    assert last == 2_000_000
-    assert since == 98.0
 
 
-def test_dump_size_stable_terminates_after_stable_period():
-    should_stop, last, since = dump_size_stable(
-        2_000_000, 2_000_000, 97.0, now=100.0, min_bytes=1_000_000, stable_seconds=3.0
+def test_classify_hard_fails_empty_dummy_without_known_error(tmp_path: Path):
+    dump_cs = tmp_path / "dump.cs"
+    dump_cs.write_text("// ok\n", encoding="utf-8")
+    (tmp_path / "DummyDll").mkdir()
+    assert (
+        classify_dumper_result(
+            dump_cs=dump_cs, out_dir=tmp_path, combined="Dumping...\nDone!\n"
+        )
+        == "fail_dummy_dll"
     )
-    assert should_stop is True
-    assert last == 2_000_000
-    assert since == 97.0
+
+
+def test_classify_fail_no_dump(tmp_path: Path):
+    dump_cs = tmp_path / "dump.cs"
+    (tmp_path / "DummyDll").mkdir()
+    assert (
+        classify_dumper_result(
+            dump_cs=dump_cs, out_dir=tmp_path, combined="Searching...\n"
+        )
+        == "fail_no_dump"
+    )
+
+
+def test_warn_if_dummy_dll_missing_empty(tmp_path: Path, capsys):
+    (tmp_path / "DummyDll").mkdir()
+    assert warn_if_dummy_dll_missing(tmp_path) is False
+    err = capsys.readouterr().err
+    assert "DummyDll missing or empty" in err
+
+
+def test_warn_if_dummy_dll_missing_ok(tmp_path: Path, capsys):
+    folder = tmp_path / "DummyDll"
+    folder.mkdir()
+    (folder / "Google.Protobuf.dll").write_bytes(b"MZ")
+    assert warn_if_dummy_dll_missing(tmp_path) is True
+    assert capsys.readouterr().err == ""
 
 
 def test_failure_message_wasm_auto_scan_hint():
@@ -65,30 +117,21 @@ def test_failure_message_wasm_auto_scan_hint():
     assert "WebAssembly" in msg or "WASM" in msg
 
 
-def test_dump_size_stable_sequence_waits_for_plateau():
-    """Simulate growing then flat sizes; terminate only after stable_seconds."""
-    last = -1
-    since = None
-    timeline = [
-        (0.0, 100_000),
-        (0.5, 800_000),
-        (1.0, 1_200_000),
-        (1.5, 5_000_000),
-        (2.0, 10_000_000),
-        (2.5, 10_000_000),
-        (3.0, 10_000_000),
-        (3.5, 10_000_000),
-        (5.5, 10_000_000),
-    ]
-    stopped_at: float | None = None
-    for now, size in timeline:
-        should_stop, last, since = dump_size_stable(
-            size, last, since, now, min_bytes=1_000_000, stable_seconds=3.0
-        )
-        if should_stop:
-            stopped_at = now
-            break
-    assert stopped_at == 5.5
+def test_failure_message_dump_without_dummy_dll(tmp_path: Path):
+    from xapk_to_proto.dumper import _failure_message
+
+    dump_cs = tmp_path / "dump.cs"
+    dump_cs.write_text("// stub\n", encoding="utf-8")
+    (tmp_path / "DummyDll").mkdir()
+    msg = _failure_message(
+        "Press any key to exit...\n",
+        binary=Path("libil2cpp.so"),
+        dump_cs=dump_cs,
+        out_dir=tmp_path,
+    )
+    assert "DummyDll" in msg
+    assert "Invalid compressed integer format" in msg
+    assert "Press any key" not in msg
 
 
 def test_validate_dump_rejects_image_list_only(tmp_path: Path):
@@ -137,8 +180,9 @@ def test_pipeline_fails_on_empty_merge(tmp_path: Path, monkeypatch, capsys):
     meta = tmp_path / "global-metadata.dat"
     meta.write_bytes(b"\x00" * 16)
     out = tmp_path / "out"
-    (out / "il2cpp").mkdir(parents=True)
-    (out / "il2cpp" / "dump.cs").write_text(
+    il2cpp = out / "il2cpp"
+    il2cpp.mkdir(parents=True)
+    (il2cpp / "dump.cs").write_text(
         "// Image 0: Google.Protobuf.dll\n"
         "public static class FooReflection // TypeDefIndex: 1\n{\n}\n",
         encoding="utf-8",
@@ -172,3 +216,4 @@ def test_pipeline_fails_on_empty_merge(tmp_path: Path, monkeypatch, capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "no protobuf descriptors extracted" in err
+    assert "DummyDll missing or empty" in err

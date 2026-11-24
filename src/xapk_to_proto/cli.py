@@ -510,6 +510,21 @@ def _add_run_parser(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="Asset links output directory (default: {output}/asset_links)",
     )
+    p.add_argument(
+        "--assetripper-input",
+        action="store_true",
+        help=(
+            "Stage il2cpp/DummyDll assemblies + bundles into {output}/assetripper "
+            "(Managed/ + bundles/) so AssetRipper exports real scripts; uses "
+            "--assets output (or XAPK local packs)"
+        ),
+    )
+    p.add_argument(
+        "--assetripper-input-out",
+        type=Path,
+        default=None,
+        help="AssetRipper staging directory (default: {output}/assetripper)",
+    )
 
 
 def _add_gamedesign_parser(sub: argparse._SubParsersAction) -> None:

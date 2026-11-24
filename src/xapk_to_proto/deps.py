@@ -7,6 +7,7 @@ import platform
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -15,11 +16,13 @@ from urllib.request import urlretrieve
 
 import platformdirs
 
-# Windows81 fork: metadata v35–v39 (Unity 6000.x). Stock Perfare stops at older versions.
-DEFAULT_DUMPER_REPO = "Windows81/Il2CppDumper"
-DEFAULT_DUMPER_VERSION = "v20260329T093452Z"
-DEFAULT_DUMPER_ASSET = "Il2CppDumper-CLI-20260329T093452Z_0507132.zip"
-# Windows81 CLI targets net9.0; DOTNET_ROLL_FORWARD cannot substitute an 8.0 runtime.
+# Fork of Windows81/Il2CppDumper (metadata v35–v39, Unity 6000.x) that skips malformed
+# default-value blobs instead of aborting DummyDll export. Stock Perfare stops at older versions.
+DEFAULT_DUMPER_REPO = "thegamefatherco/Il2CppDumper"
+DEFAULT_DUMPER_VERSION = "v20261112T094229Z"
+DEFAULT_DUMPER_ASSET = "Il2CppDumper-CLI-20261112T094229Z_f43a361.zip"
+DUMPER_SOURCE_MARKER = ".source-url"
+# The dumper CLI targets net9.0; DOTNET_ROLL_FORWARD cannot substitute an 8.0 runtime.
 DOTNET_CHANNEL = "9.0"
 DOTNET_INSTALL_URL = "https://dot.net/v1/dotnet-install.sh"
 DOTNET_MANUAL_HINT = "Install .NET 9 from https://dot.net"
@@ -117,6 +120,14 @@ def resolve_dumper_dll() -> Path:
 
     dll = find_dumper_dll(dumper_cache_dir())
     if dll is not None:
+        if not cached_dumper_is_current():
+            print(
+                f"warning: cached Il2CppDumper ({dumper_cache_dir()}) does not match "
+                f"the pinned release {dumper_url()} — run `hoh-protos setup` to "
+                "update (older builds abort DummyDll on metadata v39)",
+                file=sys.stderr,
+                flush=True,
+            )
         return dll
 
     raise FileNotFoundError("Il2CppDumper not found. Run: hoh-protos setup")
@@ -303,12 +314,24 @@ def install_dotnet(*, force: bool = False, verbose: bool = False) -> Path | None
     return dotnet_bin
 
 
+def dumper_source_marker() -> Path:
+    return dumper_cache_dir() / DUMPER_SOURCE_MARKER
+
+
+def cached_dumper_is_current() -> bool:
+    """True when the cached dumper was installed from the pinned release URL."""
+    marker = dumper_source_marker()
+    if not marker.is_file():
+        return False
+    return marker.read_text(encoding="utf-8").strip() == dumper_url()
+
+
 def install_dumper(*, force: bool = False, verbose: bool = False) -> Path:
     existing = find_dumper_dll(dumper_cache_dir())
-    if existing is not None and not force:
+    if existing is not None and not force and cached_dumper_is_current():
         return existing
 
-    if force and dumper_cache_dir().exists():
+    if dumper_cache_dir().exists():
         shutil.rmtree(dumper_cache_dir())
 
     url = dumper_url()
@@ -324,6 +347,7 @@ def install_dumper(*, force: bool = False, verbose: bool = False) -> Path:
     dll = find_dumper_dll(dumper_cache_dir())
     if dll is None:
         raise RuntimeError("Il2CppDumper install failed — Il2CppDumper.dll not found in archive")
+    dumper_source_marker().write_text(url + "\n", encoding="utf-8")
     return dll
 
 

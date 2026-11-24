@@ -86,6 +86,9 @@ def test_run_from_wasm_uses_catalog_for_assets(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("xapk_to_proto.pipeline.dumper.run_il2cpp_dumper", fake_dumper)
     monkeypatch.setattr("xapk_to_proto.pipeline.dumper.validate_dump", lambda p: None)
+    monkeypatch.setattr(
+        "xapk_to_proto.pipeline.dumper.warn_if_dummy_dll_missing", lambda p: True
+    )
     monkeypatch.setattr("xapk_to_proto.pipeline.extract.run", fake_extract)
     monkeypatch.setattr("xapk_to_proto.pipeline.emit.run", fake_emit)
     monkeypatch.setattr(

@@ -7,9 +7,10 @@ The default path uses an Android **XAPK**; `--from-wasm` uses the WebGL
 available.
 
 The `hoh-protos` CLI unpacks the XAPK (or WebGL fixtures), runs a
-[v39-capable Il2CppDumper fork](https://github.com/Windows81/Il2CppDumper)
-(Unity 6000.x / metadata v35–v39; stock
-[Perfare](https://github.com/Perfare/Il2CppDumper) does not support these),
+[v39-capable Il2CppDumper fork](https://github.com/thegamefatherco/Il2CppDumper)
+(based on [Windows81/Il2CppDumper](https://github.com/Windows81/Il2CppDumper);
+Unity 6000.x / metadata v35–v39, which stock
+[Perfare](https://github.com/Perfare/Il2CppDumper) does not support),
 merges embedded and rebuilt `FileDescriptorProto` data, and writes
 human-readable `.proto` files plus a `descriptors.pb` blob.
 
@@ -29,6 +30,7 @@ human-readable `.proto` files plus a `descriptors.pb` blob.
   - [Downloading asset bundles](#downloading-asset-bundles)
   - [Unpacking images from asset bundles](#unpacking-images-from-asset-bundles)
   - [Linking assets to game data](#linking-assets-to-game-data)
+  - [Exporting a Unity project with AssetRipper](#exporting-a-unity-project-with-assetripper)
   - [Decoding captured server blobs](#decoding-captured-server-blobs)
   - [English localization (loca)](#english-localization-loca)
 - [Environment variables](#environment-variables)
@@ -101,8 +103,9 @@ uv run hoh-protos setup
 uv run hoh-protos check-deps
 ```
 
-To refresh cached tools (required after upgrading this package when the default
-dumper changes, e.g. for Unity 6 / metadata v39):
+When the pinned dumper release changes, plain `hoh-protos setup` replaces the
+cached copy (`run` warns while the cache is stale). To refresh every cached
+tool regardless:
 
 ```bash
 uv run hoh-protos setup --force
@@ -137,7 +140,8 @@ output/un0/1.50.3/
 ├── descriptors.pb          # merged FileDescriptorSet (game schemas only)
 ├── descriptors_bundle.pb   # game + Google well-known types (self-contained)
 ├── il2cpp/
-│   └── dump.cs             # Il2CppDumper output
+│   ├── dump.cs             # Il2CppDumper C# dump (used for protobuf rebuild)
+│   └── DummyDll/           # restored managed assemblies (AssetRipper / ILSpy)
 ├── proto/
 │   ├── …                   # one .proto per game descriptor file
 │   └── google/
@@ -145,6 +149,16 @@ output/un0/1.50.3/
 ├── gamedesign/             # full per-type JSON + constants/
 └── loca/                   # en_DK catalogs + by_prefix/ splits
 ```
+
+Il2CppDumper is allowed to finish (not stopped once `dump.cs` plateaus);
+expect a longer dump step on large Unity 6 builds. Upstream dumpers abort
+DummyDll with `Invalid compressed integer format` on some metadata v39 builds
+(a compiler-generated `<PrivateImplementationDetails>` blob that does not
+decode as its declared type). The pinned fork skips those blobs and logs
+`Skipped N malformed default value blob(s)`, so `il2cpp/DummyDll/` is
+populated. If you override the dumper with an older build, the pipeline still
+warns and continues with `dump.cs`; see
+[Exporting a Unity project with AssetRipper](#exporting-a-unity-project-with-assetripper).
 
 Providing `--gamedesign-input` (or the fixture default under `--version`) also
 runs wirefix (schema repair) and emits GameDesign TypeScript constants under
@@ -589,6 +603,49 @@ misses are mostly icons that are not in the XAPK at all
 **all** types, including buildings, cities, pantheon nodes, and other
 asset-bearing DTOs.
 
+### Exporting a Unity project with AssetRipper
+
+[AssetRipper](https://github.com/AssetRipper/AssetRipper) only rebuilds real
+MonoBehaviour scripts when the managed assemblies are imported together with
+the bundles. Bundles alone produce `Dummy class. This could have happened for
+several reasons…` stubs. Its built-in IL2CPP route (Cpp2IL) currently cannot
+locate the registration tables on Unity 6000.3 WebGL builds
+([Cpp2IL#544](https://github.com/SamboyCoding/Cpp2IL/issues/544)), so use the
+DummyDll assemblies this pipeline produces instead:
+
+```bash
+uv run hoh-protos run --from-wasm --world zz0 --version 1.58.2 \
+  --assets --assetripper-input
+```
+
+This stages `output/{world}/{version}/assetripper/` (override with
+`--assetripper-input-out`):
+
+```text
+assetripper/
+├── Managed/   # copies of il2cpp/DummyDll/*.dll
+└── bundles/   # symlinks to assets/*.bundle (copies where symlinks fail)
+```
+
+On the XAPK path without `--assets`, bundles come from the XAPK's local
+Addressables packs and are copied unless `--keep-work` keeps the scratch
+directory alive.
+
+Drag **both** `Managed/` and `bundles/` into AssetRipper at the same time. The
+import worked when the log shows `Files use the 'Mono' scripting backend`;
+`Unknown` means the assemblies were not picked up.
+
+What you get, and what you do not:
+
+- Real classes with namespaces, base types, serialized fields, attributes, and
+  method signatures, plus prefab/scene `m_Script` references that resolve.
+- **Empty method bodies.** IL2CPP compiled the logic to native code (WASM on
+  WebGL); DummyDll restores metadata only. The exported project opens and lets
+  you inspect prefab data, but it does not play.
+- Assemblies must come from the same clientVersion as the bundles. Mixing
+  `un0` DLLs with `zz0` bundles breaks deserialization for any type whose
+  fields changed.
+
 ### Decoding captured server blobs
 
 Heroes of History delivers most game data as `WrappedResponse` envelopes
@@ -725,9 +782,9 @@ uv run python -m xapk_to_proto --help
 | `XAPK_TO_PROTO_DUMPER` | Path to `Il2CppDumper.dll` (skips cached dumper) |
 | `XAPK_TO_PROTO_APKEEP` | Path to an `apkeep` executable (skips cached binary / PATH) |
 | `XAPK_TO_PROTO_APKEEP_VERSION` | apkeep GitHub release tag for Linux/Windows setup (default: `1.0.0`) |
-| `IL2CPP_DUMPER_REPO` | GitHub `owner/repo` for the dumper release (default: `Windows81/Il2CppDumper`) |
-| `IL2CPP_DUMPER_VERSION` | Release tag (default: `v20260329T093452Z`) |
-| `IL2CPP_DUMPER_ASSET` | Release zip asset name (default: `Il2CppDumper-CLI-20260329T093452Z_0507132.zip`) |
+| `IL2CPP_DUMPER_REPO` | GitHub `owner/repo` for the dumper release (default: `thegamefatherco/Il2CppDumper`) |
+| `IL2CPP_DUMPER_VERSION` | Release tag (default: `v20261112T094229Z`) |
+| `IL2CPP_DUMPER_ASSET` | Release zip asset name (default: `Il2CppDumper-CLI-20261112T094229Z_f43a361.zip`) |
 
 ## Contributing
 
@@ -788,7 +845,9 @@ GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
 - [Ingweland](https://github.com/ingweland)
   - [HoH Helper Mobile](https://github.com/ingweland/hoh-helper-mobile)
   - [Forge of Games](https://github.com/ingweland/forge-of-games)
-- [Il2CppDumper](https://github.com/Windows81/Il2CppDumper) for the IL2CPP decompiler.
+- [Il2CppDumper](https://github.com/Perfare/Il2CppDumper) and the
+  [Windows81 fork](https://github.com/Windows81/Il2CppDumper) for the IL2CPP
+  decompiler.
 - [UnityPy](https://github.com/K0lb3/UnityPy) for the Addressables asset unpacker.
 
 ## Disclaimer
